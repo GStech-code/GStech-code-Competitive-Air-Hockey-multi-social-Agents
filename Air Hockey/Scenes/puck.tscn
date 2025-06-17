@@ -1,0 +1,24 @@
+[gd_scene load_steps=5 format=3 uid="uid://dn0vrujo76tg"]
+
+[ext_resource type="Texture2D" uid="uid://bgds7yyrbnymo" path="res://Assets/puck.svg" id="1_5cs87"]
+[ext_resource type="Script" uid="uid://de8aiotlv0m2q" path="res://Scripts/puck.gd" id="1_8335h"]
+
+[sub_resource type="PhysicsMaterial" id="PhysicsMaterial_8335h"]
+friction = 0.15
+bounce = 1.0
+
+[sub_resource type="CircleShape2D" id="CircleShape2D_5cs87"]
+
+[node name="puck" type="RigidBody2D"]
+physics_material_override = SubResource("PhysicsMaterial_8335h")
+gravity_scale = 0.0
+script = ExtResource("1_8335h")
+metadata/_custom_type_script = "uid://de8aiotlv0m2q"
+
+[node name="Sprite2D" type="Sprite2D" parent="."]
+scale = Vector2(0.1, 0.1)
+texture = ExtResource("1_5cs87")
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="."]
+scale = Vector2(2.8, 2.8)
+shape = SubResource("CircleShape2D_5cs87")
