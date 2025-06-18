@@ -1,9 +1,5 @@
-res://Scenes/blue_player.tscn
-res://Scripts/keyboard_character_movement.gd
-res://Scenes/red_player.tscn
+res://Scenes/goal.tscn
 res://Scenes/game.tscn
 res://Scenes/puck.tscn
-res://Scenes/goal.tscn
-res://Scripts/game_manager.gd
-res://Scripts/puck.gd
-res://Scripts/goal.gd
+res://Scenes/blue_player.tscn
+res://Scenes/red_player.tscn

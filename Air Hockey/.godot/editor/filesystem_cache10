@@ -1,5 +1,5 @@
 ea4bc82a6ad023ab7ee23ee620429895
-::res://::1750181811
+::res://::1750267081
 icon.svg::CompressedTexture2D/CompressedTexture2D::1889835065680898768::1749739278::1749739308::1::::<><><>0<>0<>1a10e50d178e953370e6e3da49d6bcb9<>res://.godot/imported/icon.svg-218a8f2b3041327d8a5756f3a245f83b.ctex::
 ::res://Assets/::1750189906
 field.svg::CompressedTexture2D/CompressedTexture2D::9113384344283328263::1749749344::1749749405::1::::<><><>0<>0<>dea64420d435604dd792f36daa209b22<>res://.godot/imported/field.svg-9278bfde2e0dcdff8c00bc7dc43f0e84.ctex::
@@ -9,16 +9,17 @@ field_walls_shadow.svg::CompressedTexture2D/CompressedTexture2D::346632310005909
 Group 3.svg::CompressedTexture2D/CompressedTexture2D::5339287820189518155::1749739772::1749740005::1::::<><><>0<>0<>39eafa01c1367ed040530782a2658853<>res://.godot/imported/Group 3.svg-43e8bdf3ad5eeed68094e16c585af84c.ctex::
 Group 4.svg::CompressedTexture2D/CompressedTexture2D::1389556938540538461::1749739767::1749740005::1::::<><><>0<>0<>e3ed9f1410256007064d8a79132a5602<>res://.godot/imported/Group 4.svg-7694e43cbcda559d00adb0e237b46063.ctex::
 puck.svg::CompressedTexture2D/CompressedTexture2D::2814898228468214814::1749739776::1749740005::1::::<><><>0<>0<>8d3738dada541aa60103e257312c4b9b<>res://.godot/imported/puck.svg-e1dfc2b55a6b84114a06fb054c8f505e.ctex::
-::res://Assets/fonts/::1750189906
-PixelOperator8-Bold.ttf::FontFile::2110332921222527896::1709837950::1750189907::1::::<><><>0<>0<>a8fa3603effac72e910c4953d862787a<>res://.godot/imported/PixelOperator8-Bold.ttf-18d3f5771d654272ea5e81396761520b.fontdata::
-PixelOperator8.ttf::FontFile::4189825863655530540::1709837950::1750189907::1::::<><><>0<>0<>2ffd6658b38fdce5c687ddfe7ff39a76<>res://.godot/imported/PixelOperator8.ttf-23bb57fce2fe6dbb570e8add02d65ecc.fontdata::
-::res://Scenes/::1750189870
-blue_player.tscn::PackedScene::3866917229873411724::1750189779::0::1::::<><><>0<>0<><>::uid://t2d2gr2mah78::::res://Assets/Group 4.svg
-game.tscn::PackedScene::1004452463846378546::1750189870::0::1::::<><><>0<>0<><>::uid://dw54bftv1xpho::::res://Assets/field_walls.png<>uid://codrlc67jccrc::::res://Assets/field_copy.svg<>uid://dn0vrujo76tg::::res://Scenes/puck.tscn<>uid://dvjpqr6o3tkp5::::res://Scripts/goal.gd<>uid://byorggp2mnv7::::res://Scenes/goal.tscn<>uid://cqu2n5fuxdr4g::::res://Scenes/red_player.tscn
-goal.tscn::PackedScene::120614631257607950::1750189779::0::1::::<><><>0<>0<><>::uid://dvjpqr6o3tkp5::::res://Scripts/goal.gd
-puck.tscn::PackedScene::238959792430001160::1750189779::0::1::::<><><>0<>0<><>::uid://bgds7yyrbnymo::::res://Assets/puck.svg<>uid://de8aiotlv0m2q::::res://Scripts/puck.gd
-red_player.tscn::PackedScene::5938814579165483116::1750189779::0::1::::<><><>0<>0<><>::uid://cicnj4uxqe372::::res://Assets/Group 3.svg<>uid://drco146vfyms8::::res://Scripts/keyboard_character_movement.gd
-::res://Scripts/::1750188946
-goal.gd::GDScript/GDScript::8652747436318658076::1749834343::0::1::::Goal<>Node<><>0<>0<><>::
-puck.gd::GDScript/GDScript::7508156943073680526::1749832952::0::1::::Pack<>RigidBody2D<><>0<>0<><>::
+::res://Assets/fonts/::1750189982
+PixelOperator8-Bold.ttf::FontFile/FontFile::2110332921222527896::1709837950::1750189907::1::::<><><>0<>0<>a8fa3603effac72e910c4953d862787a<>res://.godot/imported/PixelOperator8-Bold.ttf-18d3f5771d654272ea5e81396761520b.fontdata::
+PixelOperator8.ttf::FontFile/FontFile::4189825863655530540::1709837950::1750189907::1::::<><><>0<>0<>2ffd6658b38fdce5c687ddfe7ff39a76<>res://.godot/imported/PixelOperator8.ttf-23bb57fce2fe6dbb570e8add02d65ecc.fontdata::
+::res://Scenes/::1750266585
+blue_player.tscn::PackedScene::3866917229873411724::1750266247::0::1::::<><><>0<>0<><>::uid://t2d2gr2mah78::::res://Assets/Group 4.svg
+game.tscn::PackedScene::1004452463846378546::1750266585::0::1::::<><><>0<>0<><>::uid://dw54bftv1xpho::::res://Assets/field_walls.png<>uid://codrlc67jccrc::::res://Assets/field_copy.svg<>uid://dn0vrujo76tg::::res://Scenes/puck.tscn<>uid://dvjpqr6o3tkp5::::res://Scripts/goal.gd<>uid://byorggp2mnv7::::res://Scenes/goal.tscn<>uid://cqu2n5fuxdr4g::::res://Scenes/red_player.tscn<>uid://5ci40mvylhd5::::res://Assets/fonts/PixelOperator8-Bold.ttf
+goal.tscn::PackedScene::120614631257607950::1750266247::0::1::::<><><>0<>0<><>::uid://dvjpqr6o3tkp5::::res://Scripts/goal.gd
+puck.tscn::PackedScene::238959792430001160::1750266247::0::1::::<><><>0<>0<><>::uid://bgds7yyrbnymo::::res://Assets/puck.svg<>uid://de8aiotlv0m2q::::res://Scripts/puck.gd
+red_player.tscn::PackedScene::5938814579165483116::1750266247::0::1::::<><><>0<>0<><>::uid://cicnj4uxqe372::::res://Assets/Group 3.svg<>uid://drco146vfyms8::::res://Scripts/keyboard_character_movement.gd
+::res://Scripts/::1750266247
+game_manager.gd::GDScript::7650209676933828552::1750190721::0::1::::<>Node<><>0<>0<><>::
+goal.gd::GDScript::8652747436318658076::1750266247::0::1::::Goal<>Area2D<><>0<>0<><>::
 keyboard_character_movement.gd::GDScript::8357499189002105509::1750188946::0::1::::<>CharacterBody2D<><>0<>0<><>::
+puck.gd::GDScript::7508156943073680526::1750262908::0::1::::Puck<>RigidBody2D<><>0<>0<><>::
