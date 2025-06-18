@@ -1,3 +1,3 @@
-class_name Pack
+class_name Puck
 
 extends RigidBody2D

@@ -8,8 +8,10 @@ friction = 0.15
 bounce = 1.0
 
 [sub_resource type="CircleShape2D" id="CircleShape2D_5cs87"]
+radius = 10.1015
 
 [node name="puck" type="RigidBody2D"]
+disable_mode = 1
 physics_material_override = SubResource("PhysicsMaterial_8335h")
 gravity_scale = 0.0
 script = ExtResource("1_8335h")
@@ -20,5 +22,6 @@ scale = Vector2(0.1, 0.1)
 texture = ExtResource("1_5cs87")
 
 [node name="CollisionShape2D" type="CollisionShape2D" parent="."]
+rotation = -0.917171
 scale = Vector2(2.8, 2.8)
 shape = SubResource("CircleShape2D_5cs87")

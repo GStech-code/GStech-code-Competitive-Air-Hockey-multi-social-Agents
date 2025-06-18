@@ -1,51 +1,84 @@
-[gd_scene load_steps=14 format=4 uid="uid://oktgkidoj0yw"]
+[gd_scene load_steps=15 format=4 uid="uid://oktgkidoj0yw"]
 
 [ext_resource type="Texture2D" uid="uid://dw54bftv1xpho" path="res://Assets/field_walls.png" id="2_qxrlw"]
 [ext_resource type="Texture2D" uid="uid://codrlc67jccrc" path="res://Assets/field_copy.svg" id="3_wrm1d"]
 [ext_resource type="PackedScene" uid="uid://dn0vrujo76tg" path="res://Scenes/puck.tscn" id="4_3dryh"]
 [ext_resource type="Script" uid="uid://dvjpqr6o3tkp5" path="res://Scripts/goal.gd" id="4_wowpa"]
 [ext_resource type="PackedScene" uid="uid://byorggp2mnv7" path="res://Scenes/goal.tscn" id="5_wowpa"]
-[ext_resource type="PackedScene" uid="uid://bvdftdpqb0umm" path="res://Scenes/blue_player.tscn" id="6_i6g32"]
+[ext_resource type="PackedScene" uid="uid://cqu2n5fuxdr4g" path="res://Scenes/red_player.tscn" id="6_i6g32"]
+[ext_resource type="FontFile" uid="uid://5ci40mvylhd5" path="res://Assets/fonts/PixelOperator8-Bold.ttf" id="7_1l0tm"]
 
 [sub_resource type="GDScript" id="GDScript_3dryh"]
 resource_name = "game"
 script/source = "extends Node2D
 
-var scores = {\"left\": 0, \"right\": 0,}
+var scores = {\"left\": 0, \"right\": 0}
 
-@export var num_games: int
+@export var num_games: int = 3
+@export var puck_scene: PackedScene
+@export var puck_respawn_position: Vector2 = Vector2(680, 368)
 
-@onready var score_left_lable: Label = %Score_Left_lable
-@onready var score_right_lable: Label = %Score_Right_lable
-
-
-# Called when the node enters the scene tree for the first time.
-func _ready() -> void:
-	pass
-
-# Called every frame. 'delta' is the elapsed time since the previous frame.
-func _process(delta: float) -> void:
-	pass
+@onready var score_left_label: Label = %Score_Left_label
+@onready var score_right_label: Label = %Score_Right_label
 
 
-func _on_left_goal_goal(goalside: Variant) -> void:
+@onready var puck: Puck = $puck
+
+func _ready():
+	await get_tree().process_frame  # Wait one frame to ensure everything's in the scene
+	print(\"Left_Goal node:\", $Goals/Left_Goal)
+	print(\"Right_Goal node:\", $Goals/Right_Goal)
+
+func _on_left_goal_goal() -> void:
+	print(\"🏒 Left goal triggered by:\", puck)
 	scores[\"left\"] += 1
-	score_left_lable.text = str(scores[\"left\"])	
+	print(\"💥 GOAL on LEFT! Score is currently: \" + str(scores))
+	score_left_label.text = str(scores[\"left\"])
+	if puck: puck.queue_free()
+	await get_tree().create_timer(1.0).timeout
+	_respawn_puck()
 
-func _on_right_goal_goal(goalside: Variant) -> void:
-	scores[\"rigt\"] += 1
-	score_right_lable.text = str(scores[\"right\"])	
+func _on_right_goal_goal() -> void:
+	print(\"🏒 Right goal triggered by:\", puck)
+	scores[\"right\"] += 1
+	print(\"💥 GOAL on RIGHT! Score is currently: \" + str(scores))
+	score_right_label.text = str(scores[\"right\"])
+	if puck: puck.queue_free()
+	await get_tree().create_timer(1.0).timeout
+	_respawn_puck()
+
+func _respawn_puck():
+	if puck_scene:
+		print(\"⚽ Respawning puck...\")
+		await get_tree().process_frame  # give queue_free() time to take effect
+		var new_puck = puck_scene.instantiate() as Puck
+		new_puck.global_position = puck_respawn_position
+		new_puck.linear_velocity = Vector2.ZERO
+		new_puck.angular_velocity = 0.0
+		add_child(new_puck)
+		puck = new_puck
+
+		# Debug marker
+		var marker = ColorRect.new()
+		marker.color = Color(1, 0, 0, 0.5)
+		marker.size = Vector2(20, 20)
+		marker.position = puck.global_position - Vector2(10, 10)
+		add_child(marker)
+
+		print(\"✅ Puck respawned at:\", puck.global_position)
 "
 
-[sub_resource type="LabelSettings" id="LabelSettings_wowpa"]
-outline_color = Color(0, 0, 1, 1)
-shadow_size = 2
-shadow_color = Color(0, 0, 1, 0)
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_i6g32"]
+bg_color = Color(0.34902, 0.6, 0.780392, 0.34902)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_blend = true
 
-[sub_resource type="LabelSettings" id="LabelSettings_i6g32"]
-font_color = Color(1, 0, 0, 1)
-outline_color = Color(1, 0, 0, 1)
-shadow_color = Color(1, 0, 0, 0)
+[sub_resource type="LabelSettings" id="LabelSettings_1l0tm"]
+font = ExtResource("7_1l0tm")
+font_size = 29
 
 [sub_resource type="TileSetAtlasSource" id="TileSetAtlasSource_wrm1d"]
 texture = ExtResource("2_qxrlw")
@@ -5366,30 +5399,48 @@ sources/0 = SubResource("TileSetAtlasSource_wrm1d")
 sources/1 = SubResource("TileSetAtlasSource_3dryh")
 
 [sub_resource type="RectangleShape2D" id="RectangleShape2D_wrm1d"]
-size = Vector2(97, 240)
+size = Vector2(272, 424)
 
 [node name="Game" type="Node2D"]
 script = SubResource("GDScript_3dryh")
+puck_scene = ExtResource("4_3dryh")
 
 [node name="Score_Lables" type="Node" parent="."]
 
-[node name="Score_Left_lable" type="Label" parent="Score_Lables"]
-unique_name_in_owner = true
-offset_left = 360.0
-offset_top = 88.0
-offset_right = 400.0
-offset_bottom = 111.0
-scale = Vector2(4.78589, 2.62154)
-label_settings = SubResource("LabelSettings_wowpa")
+[node name="Left_Score_Container" type="PanelContainer" parent="Score_Lables"]
+top_level = true
+z_index = 2
+offset_left = 472.0
+offset_top = 8.0
+offset_right = 560.0
+offset_bottom = 56.0
+theme_override_styles/panel = SubResource("StyleBoxFlat_i6g32")
 
-[node name="Score_Right_lable" type="Label" parent="Score_Lables"]
+[node name="Score_Left_label" type="Label" parent="Score_Lables/Left_Score_Container"]
 unique_name_in_owner = true
-offset_left = 768.0
-offset_top = 88.0
-offset_right = 808.0
-offset_bottom = 111.0
-scale = Vector2(4.78589, 2.62154)
-label_settings = SubResource("LabelSettings_i6g32")
+layout_mode = 2
+text = "0"
+label_settings = SubResource("LabelSettings_1l0tm")
+horizontal_alignment = 1
+
+[node name="Right_Score_Container" type="PanelContainer" parent="Score_Lables"]
+top_level = true
+z_index = 2
+offset_left = 805.0
+offset_top = 8.0
+offset_right = 893.0
+offset_bottom = 56.0
+theme_override_styles/panel = SubResource("StyleBoxFlat_i6g32")
+
+[node name="Score_Right_label" type="Label" parent="Score_Lables/Right_Score_Container"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "0"
+label_settings = SubResource("LabelSettings_1l0tm")
+horizontal_alignment = 1
+
+[node name="puck" parent="." instance=ExtResource("4_3dryh")]
+position = Vector2(680, 368)
 
 [node name="Background" type="TileMapLayer" parent="."]
 z_index = -2
@@ -5398,28 +5449,25 @@ tile_map_data = PackedByteArray("AAAAACAAAQAAACAAAAAAACEAAQAAACEAAAAAACIAAQAAACI
 tile_set = SubResource("TileSet_3dryh")
 metadata/_edit_lock_ = true
 
-[node name="puck" parent="." instance=ExtResource("4_3dryh")]
-position = Vector2(680, 368)
-
 [node name="Goals" type="Node" parent="."]
 
 [node name="Left_Goal" type="Area2D" parent="Goals"]
 script = ExtResource("4_wowpa")
 
 [node name="CollisionShape2D" type="CollisionShape2D" parent="Goals/Left_Goal"]
-position = Vector2(32, 368)
+position = Vector2(-56, 356)
 shape = SubResource("RectangleShape2D_wrm1d")
 
 [node name="Right_Goal" parent="Goals" instance=ExtResource("5_wowpa")]
 
-[node name="CollisionShape2D" type="CollisionShape2D" parent="Goals/Right_Goal"]
-position = Vector2(1328, 368)
+[node name="CollisionShape2D2" type="CollisionShape2D" parent="Goals/Right_Goal"]
+position = Vector2(1416, 360)
 shape = SubResource("RectangleShape2D_wrm1d")
 
 [node name="Players" type="Node" parent="."]
 
-[node name="Blue_Player" parent="Players" instance=ExtResource("6_i6g32")]
-position = Vector2(288, 368)
+[node name="Red_player" parent="Players" instance=ExtResource("6_i6g32")]
+position = Vector2(1064, 376)
 
 [connection signal="goal" from="Goals/Left_Goal" to="." method="_on_left_goal_goal"]
 [connection signal="goal" from="Goals/Right_Goal" to="." method="_on_right_goal_goal"]

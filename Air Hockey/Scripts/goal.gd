@@ -1,13 +1,15 @@
+# Goal.gd
 class_name Goal
+extends Area2D
 
-extends Node
+signal goal()
 
-signal goal(goalside)
+func _ready():
+	print("✅ Goal script ready on:", name)
+	connect("body_entered", Callable(self, "_on_body_entered"))
 
-enum Side {LEFT, RIGHT}
-
-@export var Goal_Side: Side
-
-func _on_body_entered(body):
-	if body is Pack:
-		goal.emit(Goal_Side)
+func _on_body_entered(body: Node):
+	print("🚨 Body entered", name, ":", body)
+	if body is Puck:
+		goal.emit()
+		body.queue_free()
