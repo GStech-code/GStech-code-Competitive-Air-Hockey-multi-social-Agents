@@ -1,1 +1,12 @@
 res://Scenes/game.tscn
+res://Scenes/mainmenu.tscn
+res://Scripts/mainmenu.gd
+res://Scenes/Main.tscn
+res://Scripts/Main.gd
+res://Scenes/puck.tscn
+res://Scenes/blue_player.tscn
+res://Scenes/red_player.tscn
+res://Scenes/goal.tscn
+res://Scenes/MainMenu.tscn
+res://Scripts/Game.gd
+res://Scripts/MainMenu.gd
