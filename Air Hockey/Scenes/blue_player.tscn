@@ -1,34 +1,17 @@
 [gd_scene load_steps=4 format=3 uid="uid://bvdftdpqb0umm"]
 
+[ext_resource type="Script" uid="uid://drco146vfyms8" path="res://Scripts/keyboard_character_movement.gd" id="1_tpjhh"]
 [ext_resource type="Texture2D" uid="uid://t2d2gr2mah78" path="res://Assets/Group 4.svg" id="1_xydos"]
 
-[sub_resource type="GDScript" id="GDScript_tpjhh"]
-script/source = "extends CharacterBody2D
-
-enum Type {PLAYER, AI}
-
-@export var Player_Type: Type
-
-
-# Called when the node enters the scene tree for the first time.
-func _ready() -> void:
-	pass
-
-func _process(delta):
-	if Player_Type == Type.PLAYER:
-		# Instantly move the paddle to the mouse position
-		global_position = get_viewport().get_mouse_position()
-"
-
 [sub_resource type="CircleShape2D" id="CircleShape2D_tpjhh"]
-radius = 24.0
+radius = 192.0
 
 [node name="Blue_Player" type="CharacterBody2D"]
 collision_layer = 3
-script = SubResource("GDScript_tpjhh")
+motion_mode = 1
+script = ExtResource("1_tpjhh")
 
 [node name="Sprite2D" type="Sprite2D" parent="."]
-scale = Vector2(0.12, 0.12)
 texture = ExtResource("1_xydos")
 
 [node name="CollisionShape2D" type="CollisionShape2D" parent="."]

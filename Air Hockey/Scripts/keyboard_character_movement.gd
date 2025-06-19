@@ -1,9 +1,10 @@
 extends CharacterBody2D
 
 
-const SPEED = 130.0
-var push_force := 80.0 # Determines how strong is the force of the collision
-@onready var animated_sprite: Sprite2D = $Sprite2D
+var push_force := 600.0 # Determines how strong is the force of the collision
+const SPEED = 3000.0
+const ACCEL = 2.0
+@onready var sprite: Sprite2D = $Sprite2D
 enum P_Color {BLUE, RED}
 @export var Paddle_Color: P_Color
 
@@ -22,7 +23,7 @@ func _physics_process(_delta: float) -> void:
 	input_vector = input_vector.normalized()
 
 	# Set velocity
-	velocity = input_vector * 400
+	velocity = lerp(velocity, input_vector * SPEED, _delta * ACCEL)
 
 	# Move and detect collisions
 	move_and_slide()

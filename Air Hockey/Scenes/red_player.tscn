@@ -4,7 +4,7 @@
 [ext_resource type="Script" uid="uid://drco146vfyms8" path="res://Scripts/keyboard_character_movement.gd" id="1_j0moh"]
 
 [sub_resource type="CircleShape2D" id="CircleShape2D_j0moh"]
-radius = 25.0
+radius = 192.0
 
 [node name="Red_player" type="CharacterBody2D"]
 collision_layer = 3
@@ -16,10 +16,7 @@ script = ExtResource("1_j0moh")
 Paddle_Color = 1
 
 [node name="Sprite2D" type="Sprite2D" parent="."]
-scale = Vector2(0.12, 0.12)
 texture = ExtResource("1_dtnkb")
 
 [node name="CollisionShape2D" type="CollisionShape2D" parent="."]
-rotation = -1.17822
-scale = Vector2(0.959999, 0.959999)
 shape = SubResource("CircleShape2D_j0moh")

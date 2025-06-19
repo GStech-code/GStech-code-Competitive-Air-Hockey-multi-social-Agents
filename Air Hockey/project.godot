@@ -10,15 +10,16 @@ config_version=5
 
 [application]
 
-config/name="Pong"
+config/name="Air Hockey"
 run/main_scene="uid://oktgkidoj0yw"
 config/features=PackedStringArray("4.4", "Forward Plus")
 config/icon="res://icon.svg"
 
 [display]
 
-window/size/viewport_width=1280
-window/size/viewport_height=720
+window/size/viewport_width=1648
+window/size/viewport_height=927
+window/size/extend_to_title=true
 window/stretch/mode="canvas_items"
 
 [input]

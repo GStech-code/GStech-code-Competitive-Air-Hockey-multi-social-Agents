@@ -7,8 +7,7 @@
 friction = 0.15
 bounce = 1.0
 
-[sub_resource type="CircleShape2D" id="CircleShape2D_5cs87"]
-radius = 10.1015
+[sub_resource type="CircleShape2D" id="CircleShape2D_8335h"]
 
 [node name="puck" type="RigidBody2D"]
 disable_mode = 1
@@ -18,10 +17,9 @@ script = ExtResource("1_8335h")
 metadata/_custom_type_script = "uid://de8aiotlv0m2q"
 
 [node name="Sprite2D" type="Sprite2D" parent="."]
-scale = Vector2(0.1, 0.1)
+scale = Vector2(0.305337, 0.305337)
 texture = ExtResource("1_5cs87")
 
 [node name="CollisionShape2D" type="CollisionShape2D" parent="."]
-rotation = -0.917171
-scale = Vector2(2.8, 2.8)
-shape = SubResource("CircleShape2D_5cs87")
+scale = Vector2(8.54943, 8.54943)
+shape = SubResource("CircleShape2D_8335h")
