@@ -1,7 +1,9 @@
-[gd_scene load_steps=3 format=3 uid="uid://laisj56s57e5"]
+[gd_scene load_steps=5 format=3 uid="uid://laisj56s57e5"]
 
 [ext_resource type="Script" uid="uid://bk0l15833oisy" path="res://Scripts/MainMenu.gd" id="1_tt5f1"]
 [ext_resource type="FontFile" uid="uid://b0xt24yyupuiu" path="res://Assets/fonts/PixelOperator8.ttf" id="2_853f1"]
+[ext_resource type="AudioStream" uid="uid://ujryale6vuqm" path="res://Assets/Audio/ButtotMainMenue.wav" id="3_ghw46"]
+[ext_resource type="AudioStream" uid="uid://vhvpm0d85ldx" path="res://Assets/Audio/MenueKeyPress.wav" id="4_ghw46"]
 
 [node name="MainMenu" type="Control"]
 layout_mode = 3
@@ -30,6 +32,12 @@ offset_bottom = 466.0
 scale = Vector2(2, 2)
 theme_override_fonts/font = ExtResource("2_853f1")
 
+[node name="NumGamesSelectedSound" type="AudioStreamPlayer" parent="NumGamesSelector"]
+stream = ExtResource("3_ghw46")
+
+[node name="NumGamesHoverSound" type="AudioStreamPlayer" parent="NumGamesSelector"]
+stream = ExtResource("4_ghw46")
+
 [node name="StartButton" type="Button" parent="."]
 layout_mode = 0
 offset_left = 611.0
@@ -40,3 +48,6 @@ scale = Vector2(3, 3)
 theme_override_colors/font_disabled_color = Color(0.188235, 0.34902, 1, 1)
 theme_override_fonts/font = ExtResource("2_853f1")
 text = "Start Game"
+
+[node name="StartButtonSound" type="AudioStreamPlayer" parent="StartButton"]
+stream = ExtResource("3_ghw46")

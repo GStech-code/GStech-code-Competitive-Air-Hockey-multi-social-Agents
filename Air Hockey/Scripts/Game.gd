@@ -23,7 +23,7 @@ var scores = {"left": 0, "right": 0}
 @onready var restart_button: Button = $"PauseUI/Control/Panel/Restart Button"
 @onready var main_menue_button: Button = $"PauseUI/Control/Panel/MainMenue Button"
 
-
+@onready var goal_sound: AudioStreamPlayer2D = $GoalSound
 
 var game_over := false
 
@@ -82,6 +82,7 @@ func _end_game(winning_side: String):
 
 
 func _on_left_goal_goal() -> void:
+	goal_sound.play()
 	if game_over:
 		print("Game is over, not respawning puck.")
 		return
@@ -104,6 +105,7 @@ func _on_left_goal_goal() -> void:
 
 
 func _on_right_goal_goal() -> void:
+	goal_sound.play()
 	if game_over:
 		print("Game is over, not respawning puck.")
 		return
