@@ -1,0 +1,42 @@
+[gd_scene load_steps=3 format=3 uid="uid://laisj56s57e5"]
+
+[ext_resource type="Script" uid="uid://bk0l15833oisy" path="res://Scripts/MainMenu.gd" id="1_tt5f1"]
+[ext_resource type="FontFile" uid="uid://b0xt24yyupuiu" path="res://Assets/fonts/PixelOperator8.ttf" id="2_853f1"]
+
+[node name="MainMenu" type="Control"]
+layout_mode = 3
+anchors_preset = 0
+offset_right = 40.0
+offset_bottom = 40.0
+script = ExtResource("1_tt5f1")
+
+[node name="Label" type="Label" parent="."]
+layout_mode = 0
+offset_left = 374.0
+offset_top = 439.5
+offset_right = 674.0
+offset_bottom = 455.5
+scale = Vector2(3, 3)
+theme_override_colors/font_color = Color(0, 1, 1, 1)
+theme_override_fonts/font = ExtResource("2_853f1")
+text = "Select number of games:"
+
+[node name="NumGamesSelector" type="OptionButton" parent="."]
+layout_mode = 0
+offset_left = 1280.0
+offset_top = 446.0
+offset_right = 1312.0
+offset_bottom = 466.0
+scale = Vector2(2, 2)
+theme_override_fonts/font = ExtResource("2_853f1")
+
+[node name="StartButton" type="Button" parent="."]
+layout_mode = 0
+offset_left = 611.0
+offset_top = 520.0
+offset_right = 753.0
+offset_bottom = 551.0
+scale = Vector2(3, 3)
+theme_override_colors/font_disabled_color = Color(0.188235, 0.34902, 1, 1)
+theme_override_fonts/font = ExtResource("2_853f1")
+text = "Start Game"
