@@ -22,6 +22,10 @@ window/size/viewport_height=927
 window/size/extend_to_title=true
 window/stretch/mode="canvas_items"
 
+[global_group]
+
+Players=""
+
 [input]
 
 P1_Move_Right={

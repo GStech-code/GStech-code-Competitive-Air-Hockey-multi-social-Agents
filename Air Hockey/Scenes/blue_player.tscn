@@ -6,9 +6,9 @@
 [sub_resource type="CircleShape2D" id="CircleShape2D_tpjhh"]
 radius = 192.0
 
-[node name="Blue_Player" type="CharacterBody2D"]
+[node name="Blue_Player" type="CharacterBody2D" groups=["Players"]]
 collision_layer = 3
-collision_mask = 3
+collision_mask = 7
 motion_mode = 1
 script = ExtResource("1_tpjhh")
 

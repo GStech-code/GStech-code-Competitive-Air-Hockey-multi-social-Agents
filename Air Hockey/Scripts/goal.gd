@@ -4,6 +4,7 @@ extends Area2D
 
 signal goal()
 
+
 func _ready():
 	print("✅ Goal script ready on:", name)
 	connect("body_entered", Callable(self, "_on_body_entered"))

@@ -1,5 +1,5 @@
 extends CharacterBody2D
-
+class_name Player
 
 var push_force := 600.0 # Determines how strong is the force of the collision
 const SPEED = 3000.0

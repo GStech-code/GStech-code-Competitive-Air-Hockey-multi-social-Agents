@@ -1,23 +1,21 @@
-[gd_scene load_steps=7 format=3 uid="uid://dn0vrujo76tg"]
+[gd_scene load_steps=6 format=3 uid="uid://dn0vrujo76tg"]
 
 [ext_resource type="Texture2D" uid="uid://bgds7yyrbnymo" path="res://Assets/puck.svg" id="1_5cs87"]
 [ext_resource type="Script" uid="uid://de8aiotlv0m2q" path="res://Scripts/puck.gd" id="1_8335h"]
 [ext_resource type="AudioStream" uid="uid://kiegweuv7nqn" path="res://Assets/Audio/puck_hit_player.wav" id="3_sa50x"]
-[ext_resource type="AudioStream" uid="uid://bw1snfpuoxodl" path="res://Assets/Audio/PuckHitsWall.wav" id="4_l50me"]
 
 [sub_resource type="PhysicsMaterial" id="PhysicsMaterial_8335h"]
-friction = 0.05
+friction = 0.15
 bounce = 1.0
 
 [sub_resource type="CircleShape2D" id="CircleShape2D_8335h"]
 
 [node name="puck" type="RigidBody2D"]
-collision_mask = 2
+collision_mask = 3
 physics_material_override = SubResource("PhysicsMaterial_8335h")
 gravity_scale = 0.0
-custom_integrator = true
 contact_monitor = true
-max_contacts_reported = 1
+max_contacts_reported = 4
 script = ExtResource("1_8335h")
 metadata/_custom_type_script = "uid://de8aiotlv0m2q"
 
@@ -29,11 +27,12 @@ texture = ExtResource("1_5cs87")
 scale = Vector2(8.54943, 8.54943)
 shape = SubResource("CircleShape2D_8335h")
 
-[node name="HitWallSound" type="AudioStreamPlayer2D" parent="."]
+[node name="HitSound" type="AudioStreamPlayer2D" parent="."]
 stream = ExtResource("3_sa50x")
 max_distance = 10000.0
 attenuation = 1e-05
+area_mask = 7
 
-[node name="HitPlayerSound" type="AudioStreamPlayer2D" parent="."]
-stream = ExtResource("4_l50me")
-attenuation = 1.52588e-05
+[node name="HitSoundTimer" type="Timer" parent="."]
+wait_time = 0.1
+one_shot = true
