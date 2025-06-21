@@ -5424,7 +5424,6 @@ position = Vector2(5256, 1854)
 position = Vector2(1296, 1854)
 
 [node name="PauseUI" type="CanvasLayer" parent="."]
-visible = false
 
 [node name="Control" type="Control" parent="PauseUI"]
 layout_mode = 3
@@ -5510,7 +5509,26 @@ scale = Vector2(3, 3)
 theme_override_colors/font_color = Color(0, 1, 0.521569, 1)
 theme_override_fonts/font = ExtResource("8_v158k")
 text = "Restart"
-metadata/_edit_lock_ = true
+
+[node name="MainMenue Button" type="Button" parent="PauseUI/Control/Panel"]
+process_mode = 2
+z_index = 10
+layout_mode = 1
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -171.5
+offset_top = 289.5
+offset_right = -25.5
+offset_bottom = 320.5
+grow_horizontal = 2
+grow_vertical = 2
+scale = Vector2(3, 3)
+theme_override_colors/font_color = Color(0, 1, 0.521569, 1)
+theme_override_fonts/font = ExtResource("8_v158k")
+text = "Main Menue"
 
 [connection signal="goal" from="Goals/Left_Goal" to="." method="_on_left_goal_goal"]
 [connection signal="goal" from="Goals/Right_Goal" to="." method="_on_right_goal_goal"]

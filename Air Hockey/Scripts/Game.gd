@@ -2,6 +2,10 @@
 
 extends Node2D
 
+signal start_game_requested(num_games: int)
+signal rerurn_to_menue_requested()
+signal game_paused(is_paused: bool)
+
 var scores = {"left": 0, "right": 0}
 
 @export var num_games: int = 3
@@ -17,6 +21,8 @@ var scores = {"left": 0, "right": 0}
 @onready var control: Control = $PauseUI/Control
 @onready var winner_label: Label = $PauseUI/Control/Panel/WinnerLabel
 @onready var restart_button: Button = $"PauseUI/Control/Panel/Restart Button"
+@onready var main_menue_button: Button = $"PauseUI/Control/Panel/MainMenue Button"
+
 
 
 var game_over := false
@@ -53,10 +59,15 @@ func _ready():
 
 func _on_restart_button_pressed():
 	get_tree().paused = false
-	get_tree().reload_current_scene()
+	start_game_requested.emit(num_games)
 	
+func _on_main_menue_button_pressed():
+	print("📨 Emitting signal to return to the main menue")
+	rerurn_to_menue_requested.emit()
+
 	
 func _end_game(winning_side: String):
+	main_menue_button.pressed.connect(_on_main_menue_button_pressed)
 	game_over = true
 	if puck:
 		puck.queue_free()
@@ -64,6 +75,10 @@ func _end_game(winning_side: String):
 	winner_label.text = winning_side + " Wins!"
 	pause_ui.visible = true
 	get_tree().paused = true
+	game_paused.emit()
+	
+	
+	
 
 
 func _on_left_goal_goal() -> void:

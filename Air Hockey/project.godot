@@ -13,7 +13,7 @@ config_version=5
 config/name="Air Hockey"
 run/main_scene="uid://0xwwugbe6v81"
 config/features=PackedStringArray("4.4", "Forward Plus")
-config/icon="res://icon.svg"
+config/icon="uid://d23udxvdjd57h"
 
 [display]
 

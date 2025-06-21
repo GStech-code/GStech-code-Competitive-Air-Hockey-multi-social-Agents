@@ -11,6 +11,7 @@ bounce = 1.0
 
 [node name="puck" type="RigidBody2D"]
 disable_mode = 1
+collision_mask = 0
 physics_material_override = SubResource("PhysicsMaterial_8335h")
 gravity_scale = 0.0
 script = ExtResource("1_8335h")
