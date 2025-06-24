@@ -45,7 +45,9 @@ func _set_ui_pause_mode():
 
 func _ready():
 	await get_tree().process_frame  # Wait one frame to ensure everything's in the scene
-	puck_scene = preload("res://scenes/Puck.tscn")
+	$Camera2D.make_current()
+	print("Camera position:", $Camera2D.global_position)
+	puck_scene = preload("res://Scenes/Puck.tscn")
 	# Ensure UI nodes still work when game is paused
 	_set_ui_pause_mode()
 	# Connect restart button
@@ -55,6 +57,12 @@ func _ready():
 	pause_ui.visible = false
 	_respawn_puck()
 	restart_button.pressed.connect(_on_restart_button_pressed)
+	print("🧱 Background node:", $Background)
+	print("🧱 TileSet:", $Background.tile_set)
+	if $Background.tile_set:
+		print("🧱 Source count:", $Background.tile_set.get_source_count())
+		for i in range($Background.tile_set.get_source_count()):
+			print(" - Source:", $Background.tile_set.get_source_id(i))
 	
 
 func _on_restart_button_pressed():

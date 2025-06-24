@@ -13,7 +13,7 @@ config_version=5
 config/name="Air Hockey"
 run/main_scene="uid://0xwwugbe6v81"
 config/features=PackedStringArray("4.4", "Forward Plus")
-config/icon="uid://d23udxvdjd57h"
+config/icon="uid://t2d2gr2mah78"
 
 [display]
 
@@ -72,3 +72,7 @@ P2_Move_Down={
 [orchestrator]
 
 settings/notify_about_pre-releases=false
+
+[rendering]
+
+textures/vram_compression/import_etc2_astc=true
