@@ -8,6 +8,8 @@ var current_scene: Node = null  # track current child scene
 
 func _ready():
 	_load_main_menu()
+	print("👀 Current scene tree:")
+	print_tree_pretty()
 
 func _load_main_menu():
 	var menu = preload("res://Scenes/MainMenu.tscn").instantiate()
