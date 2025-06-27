@@ -8,7 +8,7 @@ if defined _OLD_CODEPAGE (
     "%SystemRoot%\System32\chcp.com" 65001 > nul
 )
 
-set VIRTUAL_ENV=C:\Users\galsa\OneDrive - Technion\Desktop\רובוטים קוגניטיביים\Final_Project\venv
+set VIRTUAL_ENV=C:\Users\galsa\source\repos\AirHockey\GStech-code-Competitive-Air-Hockey-multi-social-Agents\Air Hockey Python\venv
 
 if not defined PROMPT set PROMPT=$P$G
 

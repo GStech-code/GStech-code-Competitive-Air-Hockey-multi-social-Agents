@@ -37,7 +37,7 @@ deactivate () {
 # unset irrelevant variables
 deactivate nondestructive
 
-VIRTUAL_ENV="C:\Users\galsa\OneDrive - Technion\Desktop\רובוטים קוגניטיביים\Final_Project\venv"
+VIRTUAL_ENV="C:\Users\galsa\source\repos\AirHockey\GStech-code-Competitive-Air-Hockey-multi-social-Agents\Air Hockey Python\venv"
 export VIRTUAL_ENV
 
 _OLD_VIRTUAL_PATH="$PATH"
