@@ -9,7 +9,7 @@ class Disc:
         self.center_x = x
         self.center_y = y
         self.radius = radius
-        self.max_speed = 15
+        self.max_speed = 6
         angle = self._get_random_angle(-30, 30, [0])
         self.x_vel = abs(math.cos(angle) * self.max_speed)
         self.y_vel = math.sin(angle) * self.max_speed
@@ -326,12 +326,12 @@ class Game:
         self.paddle1 = Paddle(
             self.screen.get_width() / 2 - 200,
             self.screen.get_height() / 2,
-            20, 8, './Air-Hockey-python/bluepad.png', 'left'
+            20, 6, './Air-Hockey-python/bluepad.png', 'left'
         )
         self.paddle2 = Paddle(
             self.screen.get_width() / 2 + 200,
             self.screen.get_height() / 2,
-            20, 8, './Air-Hockey-python/redpad.png', 'right'
+            20, 6, './Air-Hockey-python/redpad.png', 'right'
         )
         
         # Disc
