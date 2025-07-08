@@ -5,13 +5,14 @@ from pygame.locals import *
 
 
 class Paddle:
-    def __init__(self, x, y, radius, velocity, side='left'):
+    def __init__(self, x, y, radius, velocity, side='left', player_controlled = True):
         self.center_x = x
         self.center_y = y
         self.radius = radius
-        self.base_velocity = velocity
+        self.current_speed = abs(velocity)
         self.velocity = velocity
         self.side = side  # 'left' or 'right'
+        self.player_controlled = player_controlled # Control flag for Player (True) or NEAT (False)
         self.color = (255, 100, 100) if side == 'left' else (20, 20, 100)
         
         # Enhanced movement system
@@ -59,33 +60,47 @@ class Paddle:
         self.prev_x = self.center_x
         self.prev_y = self.center_y
         
-        # Get raw input
+        
+        # Get raw input based on whether keys is a dict or ScancodeWrapper
         blue_down, blue_up, red_up, red_down = 0, 0, 0, 0
         blue_left, blue_right, red_right, red_left = 0, 0, 0, 0
         
+        if isinstance(keys, dict): # NEAT input
+            if self.side == 'left':
+                blue_left = 1 if keys.get(K_a, False) else 0
+                blue_right = 1 if keys.get(K_d, False) else 0
+                blue_up = 1 if keys.get(K_w, False) else 0
+                blue_down = 1 if keys.get(K_s, False) else 0
+            else: # right paddle
+                red_left = 1 if keys.get(K_LEFT, False) else 0
+                red_right = 1 if keys.get(K_RIGHT, False) else 0
+                red_up = 1 if keys.get(K_UP, False) else 0
+                red_down = 1 if keys.get(K_DOWN, False) else 0
+        else: # pygame.key.ScancodeWrapper (player input)
+            if self.side == 'left':
+                # WASD controls
+                if keys[K_a]:
+                    blue_left = 1
+                if keys[K_d]:
+                    blue_right = 1
+                if keys[K_w]:
+                    blue_up = 1
+                if keys[K_s]:
+                    blue_down = 1
+            else:
+                # Arrow key controls
+                if keys[K_LEFT]:
+                    red_left = 1
+                if keys[K_RIGHT]:
+                    red_right = 1
+                if keys[K_UP]:
+                    red_up = 1
+                if keys[K_DOWN]:
+                    red_down = 1
+        
         if self.side == 'left':
-            # WASD controls
-            if keys[K_a]:
-                blue_left = 1
-            if keys[K_d]:
-                blue_right = 1
-            if keys[K_w]:
-                blue_up = 1
-            if keys[K_s]:
-                blue_down = 1
-            
             raw_input = [blue_left, blue_right, blue_up, blue_down]
         else:
-            # Arrow key controls
-            if keys[K_LEFT]:
-                red_left = 1
-            if keys[K_RIGHT]:
-                red_right = 1
-            if keys[K_UP]:
-                red_up = 1
-            if keys[K_DOWN]:
-                red_down = 1
-            
             raw_input = [red_left, red_right, red_up, red_down]
         
         # Apply input smoothing
@@ -124,6 +139,7 @@ class Paddle:
         # Calculate actual velocity (how much the paddle actually moved)
         self.actual_velocity_x = self.center_x - self.prev_x
         self.actual_velocity_y = self.center_y - self.prev_y
+        self.current_speed = math.sqrt(self.current_velocity_x**2 + self.current_velocity_y**2)
     
     def apply_boundaries(self, screen_width, screen_height):
         """Apply movement boundaries with collision buffer"""
@@ -153,11 +169,6 @@ class Paddle:
                 self.center_x = screen_width / 2 + self.radius + self.collision_buffer
                 self.current_velocity_x = 0
     
-    def get_predicted_position(self, time_ahead=0.1):
-        """Predict paddle position for better AI"""
-        pred_x = self.center_x + self.current_velocity_x * time_ahead * 60  # 60 FPS assumption
-        pred_y = self.center_y + self.current_velocity_y * time_ahead * 60
-        return pred_x, pred_y
     
     def is_in_goal_area(self, screen_width, screen_height):
         """Check if paddle is in goal area"""
@@ -176,15 +187,10 @@ class Paddle:
         """Get current movement vector for physics calculations"""
         return np.array([self.current_velocity_x, self.current_velocity_y])
     
-    def get_momentum(self):
-        """Calculate momentum for collision physics"""
-        speed = math.sqrt(self.current_velocity_x**2 + self.current_velocity_y**2)
-        return speed * 3.0  # Assuming paddle mass of 3.0
-    
-    def draw(self, screen):
-        """Draw the paddle - Note: This is for pygame compatibility"""
-        # This method is kept for compatibility but won't be used in OpenGL version
-        pygame.draw.circle(screen, self.color, (int(self.center_x), int(self.center_y)), self.radius)
+    #def draw(self, screen):
+    #    """Draw the paddle - Note: This is for pygame compatibility"""
+    #    # This method is kept for compatibility but won't be used in OpenGL version
+    #    pygame.draw.circle(screen, self.color, (int(self.center_x), int(self.center_y)), self.radius)
     
     def reset_position(self, x, y):
         """Reset paddle to specific position"""

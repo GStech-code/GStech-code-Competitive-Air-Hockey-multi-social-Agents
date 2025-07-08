@@ -11,21 +11,6 @@ from air_hockey_python.paddle import Paddle
 from air_hockey_python.helper_functions import draw_two_digit_score
 
 
-class GameInformation:
-    def __init__(self, Left_score, Right_score, blue_paddle_x, blue_paddle_y, red_paddle_x,
-                 red_paddle_y, disc_x, disc_y, disc_velocity_x, disc_velocity_y):
-            self.blue_paddle_x = blue_paddle_x
-            self.blue_paddle_y = blue_paddle_y
-            self.red_paddle_x = red_paddle_x
-            self.red_paddle_y = red_paddle_y
-            self.disc_x = disc_x
-            self.disc_y = disc_y
-            self.disc_velocity_x = disc_velocity_x
-            self.disc_velocity_y = disc_velocity_y
-            self.left_score = Left_score
-            self.right_score = Right_score
-
-
 class Game:
     def __init__(self):
         """Initialize the game"""
@@ -67,9 +52,13 @@ class Game:
         self.score2 = 0
         self.serve_direction = 1
         self.game_states = []
-        self.player1_actions = []
-        self.player2_actions = []
+        #self.player1_actions = []
+        #self.player2_actions = []
         self.max_score = 99
+        
+        # NEAT Control flags
+        self.neat_control_paddle1 = False # Left paddle
+        self.neat_control_paddle2 = False # Right paddle
         
         # Initialize game objects
         self.setup_game_objects()
@@ -105,12 +94,14 @@ class Game:
         self.paddle1 = Paddle(
             self.screen_width / 2 - 200,
             self.screen_height / 2,
-            20, 3, 'left'
+            20, 3, 'left',
+            player_controlled=False # Initially player controlled
         )
         self.paddle2 = Paddle(
             self.screen_width / 2 + 200,
             self.screen_height / 2,
-            20, 3, 'right'
+            20, 3, 'right',
+            player_controlled=False # Initially player controlled
         )
         
         # Disc
@@ -120,51 +111,103 @@ class Game:
             15
         )
 
-    def get_game_state(self):
-        """Get current game state for neural network"""
-        game_state = {
-            'disc_x': self.disc.center_x,
-            'disc_y': self.disc.center_y,
-            'disc_velocity_x': self.disc.x_vel,
-            'disc_velocity_y': self.disc.y_vel,
-            'blue_paddle_x': self.paddle1.center_x,
-            'blue_paddle_y': self.paddle1.center_y,
-            'red_paddle_x': self.paddle2.center_x,
-            'red_paddle_y': self.paddle2.center_y,
-            'blue_paddle_in_own_goal': self.paddle1.is_in_goal_area(self.screen_width, self.screen_height),
-            'red_paddle_in_own_goal': self.paddle2.is_in_goal_area(self.screen_width, self.screen_height),
-            'score1': self.score1,  # Blue Player (Left)
-            'score2': self.score2,  # Red Player (Right)
-            'serve_direction': self.serve_direction
-        }
-        return game_state
+    #def get_game_state(self):
+    #    """Get current game state for neural network"""
+    #    game_state = {
+    #        'disc_x': self.disc.center_x,
+    #        'disc_y': self.disc.center_y,
+    #        'disc_velocity_x': self.disc.x_vel,
+    #        'disc_velocity_y': self.disc.y_vel,
+    #        'blue_paddle_x': self.paddle1.center_x,
+    #        'blue_paddle_y': self.paddle1.center_y,
+    #        'red_paddle_x': self.paddle2.center_x,
+    #        'red_paddle_y': self.paddle2.center_y,
+    #        'blue_paddle_in_own_goal': self.paddle1.is_in_goal_area(self.screen_width, self.screen_height),
+    #        'red_paddle_in_own_goal': self.paddle2.is_in_goal_area(self.screen_width, self.screen_height),
+    #        'score1': self.score1,  # Blue Player (Left)
+    #        'score2': self.score2,  # Red Player (Right)
+    #        'serve_direction': self.serve_direction
+    #    }
+    #    return game_state
 
-    def get_neat_input_vector(self):
-        """Get input vector specifically formatted for NEAT neural network training"""
-        state = self.get_game_state()
-        game_info = GameInformation(state['score1'] / self.max_score, state['score2'] / self.max_score,
-                                    state['blue_paddle_x'] / self.screen_width, state['blue_paddle_y'] / self.screen_height,
-                                    state['red_paddle_x'] / self.screen_width, state['red_paddle_y'] / self.screen_height,
-                                    state['disc_x'] / self.screen_width, state['disc_y'] / self.screen_height,
-                                    state['disc_velocity_x'] / self.disc.max_speed, state['disc_velocity_y'] / self.disc.max_speed)
-        # Return as a list/array that NEAT can use as input
-        # Normalized values
-        return [
-            state['disc_x'] / self.screen_width,           # Normalized disc x position (0-1)
-            state['disc_y'] / self.screen_height,          # Normalized disc y position (0-1)
-            state['disc_velocity_x'] / self.disc.max_speed,               # Normalized disc x velocity
-            state['disc_velocity_y'] / self.disc.max_speed,               # Normalized disc y velocity
-            state['blue_paddle_x'] / self.screen_width,    # Normalized blue paddle x position (0-1)
-            state['blue_paddle_y'] / self.screen_height,   # Normalized blue paddle y position (0-1)
-            state['red_paddle_x'] / self.screen_width,     # Normalized red paddle x position (0-1)
-            state['red_paddle_y'] / self.screen_height,    # Normalized red paddle y position (0-1)
-            float(state['blue_paddle_in_own_goal']),       # Boolean as float (0.0 or 1.0)
-            float(state['red_paddle_in_own_goal']),        # Boolean as float (0.0 or 1.0)
-            state['score1'] / self.max_score,                        # Normalized score (assuming max 99)
-            state['score2'] / self.max_score,                        # Normalized score (assuming max 99)
-            float(state['serve_direction']),                 # Serve direction (-1 or 1)
-            game_info
-        ]
+
+    def update_one_frame(self, paddle1_keys, paddle2_keys, render=False):
+        """Run one frame of game logic. Optionally render for visual debugging."""
+        if self.paused:
+            return self.get_game_state()
+
+        # Update paddles using NEAT decisions
+        self.paddle1.update(paddle1_keys, self.screen_width, self.screen_height)
+        self.paddle2.update(paddle2_keys, self.screen_width, self.screen_height)
+
+        # Update disc movement and collisions
+        self.disc.update(self.screen_width, self.screen_height)
+        self.disc.check_wall_collision(self.screen_width, self.screen_height)
+
+        # Check scoring
+        score_left, score_right = self.disc.check_side_collision(
+            self.screen_width, self.screen_height, self.goal1, self.goal2
+        )
+        if score_left:
+            self.score1 += 1
+            self.serve_direction = 1
+            self.reset_puck()
+        elif score_right:
+            self.score2 += 1
+            self.serve_direction = -1
+            self.reset_puck()
+
+        # Check paddle collisions
+        if self.disc.check_paddle_collision(self.paddle1):
+            self.disc.handle_paddle_collision(self.paddle1)
+        if self.disc.check_paddle_collision(self.paddle2):
+            self.disc.handle_paddle_collision(self.paddle2)
+
+        # Optional rendering
+        if render:
+            self.draw_field()
+            self.draw_ui()
+
+            # Draw game objects
+            self.draw_circle(self.disc.center_x, self.disc.center_y, self.disc.radius, self.white)
+            self.draw_circle(self.paddle1.center_x, self.paddle1.center_y, self.paddle1.radius, self.blue)
+            self.draw_circle(self.paddle2.center_x, self.paddle2.center_y, self.paddle2.radius, self.red)
+
+            pygame.display.flip()
+            self.clock.tick(60)  # Limit to 60 FPS when rendering
+
+        return self.get_game_state()
+
+    
+    def neat_requests(self, neat_output, side):
+        """Apply actions from NEAT neural networks to the paddles
+        
+        Args:
+            neat_output: List of 4 values [left, right, up, down] for a paddle (0-1)
+            side: 'left' or 'right' to determine which paddle's controls to mock
+        """
+        # Convert neural network outputs to key states for paddle update
+        # Assuming your neural network outputs values between 0 and 1
+        
+        # Create a mock keys dictionary for the paddles
+        if side == 'left':
+            mock_keys = {
+                # Blue paddle (WASD)
+                pygame.K_a: neat_output[0] > 0.5,   # left
+                pygame.K_d: neat_output[1] > 0.5,   # right
+                pygame.K_w: neat_output[2] > 0.5,   # up
+                pygame.K_s: neat_output[3] > 0.5,   # down
+            }
+        else:
+            # Red paddle (Arrow keys)
+            mock_keys = {
+            pygame.K_LEFT: neat_output[0] > 0.5,   # left
+            pygame.K_RIGHT: neat_output[1] > 0.5,  # right
+            pygame.K_UP: neat_output[2] > 0.5,     # up
+            pygame.K_DOWN: neat_output[3] > 0.5,   # down
+            }
+        return mock_keys
+
 
     def toggle_pause(self):
         """Toggle pause state"""
@@ -173,12 +216,12 @@ class Game:
             self.paused = False
             # Add the pause duration to total pause time
             self.total_pause_time += time.time() - self.pause_start_time
-            print("Game resumed")
+            #print("Game resumed")
         else:
             # Pause game
             self.paused = True
             self.pause_start_time = time.time()
-            print("Game paused - Press P to resume")
+            #print("Game paused - Press P to resume")
 
     def draw_pause_overlay(self):
         """Draw pause overlay on screen"""
@@ -420,33 +463,33 @@ class Game:
         draw_two_digit_score(self, self.score2, self.screen_width - 70, 60, self.red)
 
     def get_game_state(self):
-        """Get current game state for neural network"""
+        """Get current game state for neural network (normelized)"""
         game_state = {
-            'blue_paddle_x': self.paddle1.center_x / (self.screen_width / 2),
-            'blue_paddle_y': self.paddle1.center_y / self.screen_height,
-            'red_paddle_x': (self.paddle2.center_x - self.screen_width / 2) / (self.screen_width / 2),
-            'red_paddle_y': self.paddle2.center_y / self.screen_height,
-            'disc_x': self.disc.center_x / self.screen_width,
-            'disc_y': self.disc.center_y / self.screen_height,
-            'disc_velocity_x': self.disc.x_vel / self.disc.max_speed,
-            'disc_velocity_y': self.disc.y_vel / self.disc.max_speed,
-            'blue_paddle_x_raw': self.paddle1.center_x,
-            'blue_paddle_y_raw': self.paddle1.center_y,
-            'red_paddle_x_raw': self.paddle2.center_x,
-            'red_paddle_y_raw': self.paddle2.center_y,
-            'disc_x_raw': self.disc.center_x,
-            'disc_y_raw': self.disc.center_y,
-            'disc_velocity_x_raw': self.disc.x_vel,
-            'disc_velocity_y_raw': self.disc.y_vel,
-            'blue_paddle_in_own_goal': self.paddle1.is_in_goal_area(self.screen_width, self.screen_height),
-            'red_paddle_in_own_goal': self.paddle2.is_in_goal_area(self.screen_width, self.screen_height),
-            'score1': self.score1,
-            'score2': self.score2,
-            'serve_direction': self.serve_direction,
-            'blue_paddle_to_disc_distance': math.sqrt((self.paddle1.center_x - self.disc.center_x)**2 + (self.paddle1.center_y - self.disc.center_y)**2),
-            'red_paddle_to_disc_distance': math.sqrt((self.paddle2.center_x - self.disc.center_x)**2 + (self.paddle2.center_y - self.disc.center_y)**2),
-            'game_time': (pygame.time.get_ticks() / 1000.0) - self.total_pause_time,
-            'paused': self.paused
+            'blue_paddle_x': self.paddle1.center_x / (self.screen_width / 2), # [0]
+            'blue_paddle_y': self.paddle1.center_y / self.screen_height, # [1]
+            'red_paddle_x': (self.paddle2.center_x - self.screen_width / 2) / (self.screen_width / 2), # [2]
+            'red_paddle_y': self.paddle2.center_y / self.screen_height, # [3]
+            'disc_x': self.disc.center_x / self.screen_width, # [4]
+            'disc_y': self.disc.center_y / self.screen_height, # [5]
+            'disc_velocity_x': self.disc.x_vel / self.disc.max_speed, # [6]
+            'disc_velocity_y': self.disc.y_vel / self.disc.max_speed, # [7]
+            'blue_paddle_x_raw': self.paddle1.center_x, # [8]
+            'blue_paddle_y_raw': self.paddle1.center_y, # [9]
+            'red_paddle_x_raw': self.paddle2.center_x, # [10]
+            'red_paddle_y_raw': self.paddle2.center_y, # [11]
+            'disc_x_raw': self.disc.center_x, # [12]
+            'disc_y_raw': self.disc.center_y, # [13]
+            'disc_velocity_x_raw': self.disc.x_vel, # [14]
+            'disc_velocity_y_raw': self.disc.y_vel, # [15]
+            'blue_paddle_in_own_goal': self.paddle1.is_in_goal_area(self.screen_width, self.screen_height), # [16]
+            'red_paddle_in_own_goal': self.paddle2.is_in_goal_area(self.screen_width, self.screen_height), # [17]
+            'score1': self.score1, # [18]
+            'score2': self.score2, # [19]
+            'serve_direction': self.serve_direction, # [20]
+            'blue_paddle_to_disc_distance': math.sqrt((self.paddle1.center_x - self.disc.center_x)**2 + (self.paddle1.center_y - self.disc.center_y)**2), # [21]
+            'red_paddle_to_disc_distance': math.sqrt((self.paddle2.center_x - self.disc.center_x)**2 + (self.paddle2.center_y - self.disc.center_y)**2), # [22]
+            'game_time': (pygame.time.get_ticks() / 1000.0) - self.total_pause_time, # [23]
+            'paused': self.paused # [24]
         }
         return game_state
 
@@ -454,22 +497,22 @@ class Game:
         """Get input vector for neural network"""
         state = self.get_game_state()
         return [
-            state['score1'],
-            state['score2'],
-            state['blue_paddle_x'],
-            state['blue_paddle_y'],
-            state['red_paddle_x'],
-            state['red_paddle_y'],
-            state['disc_x'],
-            state['disc_y'],
-            state['disc_velocity_x'],
-            state['disc_velocity_y'],
+            state['score1'], # [0]
+            state['score2'], # [1]
+            state['blue_paddle_x'], # [2]
+            state['blue_paddle_y'], # [3]
+            state['red_paddle_x'], # [4]
+            state['red_paddle_y'], # [5]
+            state['disc_x'], # [6]
+            state['disc_y'], # [7]
+            state['disc_velocity_x'], # [8]
+            state['disc_velocity_y'], # [9]
         ]
 
     def reset_puck(self):
         """Reset puck after scoring"""
         self.disc.reset(self.screen_width, self.screen_height, self.serve_direction)
-        print(f"Score: Player 1: {self.score1}, Player 2: {self.score2}")
+        #print(f"Score: Player 1: {self.score1}, Player 2: {self.score2}")
         time.sleep(0.5)
 
     def reset_game(self):
@@ -484,8 +527,8 @@ class Game:
         self.score2 = 0
         self.serve_direction = 1
         self.game_states = []
-        self.player1_actions = []
-        self.player2_actions = []
+        #self.player1_actions = []
+        #self.player2_actions = []
         self.paused = False
         self.total_pause_time = 0
         self.reset_puck()
@@ -496,8 +539,25 @@ class Game:
             return  # Don't update game state when paused
             
         # Update paddles with higher frequency
-        self.paddle1.update(keys, self.screen_width, self.screen_height)
-        self.paddle2.update(keys, self.screen_width, self.screen_height)
+        # If neat_control_paddle1 is True, use NEAT output for paddle1
+        if self.neat_control_paddle1:
+            # Example NEAT output (replace with actual NEAT network output)
+            # For demonstration, let's make it go right slowly
+            neat_output_paddle1 = [0, 0.2, 0, 0] # Example: slight right movement
+            paddle1_keys = self.neat_requests(neat_output_paddle1, 'left')
+            self.paddle1.update(paddle1_keys, self.screen_width, self.screen_height)
+        else:
+            self.paddle1.update(keys, self.screen_width, self.screen_height)
+
+        # If neat_control_paddle2 is True, use NEAT output for paddle2
+        if self.neat_control_paddle2:
+            # Example NEAT output (replace with actual NEAT network output)
+            # For demonstration, let's make it go left slowly
+            neat_output_paddle2 = [0.2, 0, 0, 0] # Example: slight left movement
+            paddle2_keys = self.neat_requests(neat_output_paddle2, 'right')
+            self.paddle2.update(paddle2_keys, self.screen_width, self.screen_height)
+        else:
+            self.paddle2.update(keys, self.screen_width, self.screen_height)
         
         # Update disc with smoother physics
         self.disc.update(self.screen_width, self.screen_height)
@@ -522,29 +582,25 @@ class Game:
         if self.disc.check_paddle_collision(self.paddle2):
             self.disc.handle_paddle_collision(self.paddle2)
 
-    def cleanup_textures(self):
-        """Clean up any textures or OpenGL resources"""
-        # Add cleanup code here if you have textures
-        pass
 
     def run(self):
         """Main game loop with GPU acceleration"""
         game_exit = False
         frame_count = 0
-        print("Starting GPU-accelerated Air Hockey!")
-        print("Controls:")
-        print("Player 1 (Blue): WASD keys")
-        print("Player 2 (Red): Arrow keys")
-        print("P: Pause/Resume")
-        print("R: Reset game")
-        print("ESC: Exit game")
+        #print("Starting GPU-accelerated Air Hockey!")
+        #print("Controls:")
+        #print("Player 1 (Blue): WASD keys")
+        #print("Player 2 (Red): Arrow keys")
+        #print("P: Pause/Resume")
+        #print("R: Reset game")
+        #print("ESC: Exit game")
         
         # Now that OpenGL context is created, we can query OpenGL info
-        try:
-            print("OpenGL Version:", glGetString(GL_VERSION).decode())
-            print("Graphics Card:", glGetString(GL_RENDERER).decode())
-        except Exception as e:
-            print("Could not get OpenGL info:", e)
+        #try:
+            #print("OpenGL Version:", glGetString(GL_VERSION).decode())
+            #print("Graphics Card:", glGetString(GL_RENDERER).decode())
+        #except Exception as e:
+            #print("Could not get OpenGL info:", e)
         
         try:
             while not game_exit:
@@ -563,42 +619,48 @@ class Game:
                             if not self.pause_pressed:
                                 self.toggle_pause()
                                 self.pause_pressed = True
+                        if event.key == pygame.K_1: # Toggle NEAT for Paddle 1
+                            self.neat_control_paddle1 = not self.neat_control_paddle1
+                            print(f"NEAT control for Player 1 (Blue) {'enabled' if self.neat_control_paddle1 else 'disabled'}")
+                        if event.key == pygame.K_2: # Toggle NEAT for Paddle 2
+                            self.neat_control_paddle2 = not self.neat_control_paddle2
+                            print(f"NEAT control for Player 2 (Red) {'enabled' if self.neat_control_paddle2 else 'disabled'}")
                     if event.type == pygame.KEYUP:
                         if event.key == pygame.K_p:
                             self.pause_pressed = False
                 
                 # Get input with reduced latency
                 keys = pygame.key.get_pressed()
-                
                 # Only update game state if not paused
                 if not self.paused:
                     # Collect training data
                     current_state = self.get_game_state()
                     current_input_vector = self.get_neural_network_input_vector()
                     # Print game state periodically
-                    if frame_count % 60 == 0:
-                        print("Current Game State:")
-                        print(f"Blue Paddle: ({current_state['blue_paddle_x_raw']:.1f}, {current_state['blue_paddle_y_raw']:.1f})")
-                        print(f"Red Paddle: ({current_state['red_paddle_x_raw']:.1f}, {current_state['red_paddle_y_raw']:.1f})")
-                        print(f"Disc: ({current_state['disc_x_raw']:.1f}, {current_state['disc_y_raw']:.1f})")
-                        print(f"Disc Velocity: ({current_state['disc_velocity_x_raw']:.1f}, {current_state['disc_velocity_y_raw']:.1f})")
-                        print(f"  Blue paddle in own goal: {current_state['blue_paddle_in_own_goal']}")
-                        print(f"  Red paddle in own goal: {current_state['red_paddle_in_own_goal']}")
-                        print(f"Score: {self.score1} - {self.score2}")
-                        print(f"Game Time: {current_state['game_time']:.1f}s")
-                        print("current_input_vector (is normalized): ['score1': " + str(current_input_vector[0]) + ",")
-                        print("'score2': " + str(current_input_vector[1]) + ",")
-                        print("'blue_paddle_x': " + str(current_input_vector[2]) + ",")
-                        print("'blue_paddle_y': " + str(current_input_vector[3]) + ",")
-                        print("'red_paddle_x': " + str(current_input_vector[4]) + ",")
-                        print("'red_paddle_y': " + str(current_input_vector[5]) + ",")
-                        print("'disc_x': " + str(current_input_vector[6]) + ",")
-                        print("'disc_y': " + str(current_input_vector[7]) + ",")
-                        print("'disc_velocity_x': " + str(current_input_vector[8]) + ",")
-                        print("'disc_velocity_y': " + str(current_input_vector[9])+ "\n]")
-                        print("-" * 50)
+                    #if frame_count % 60 == 0:
+                        #print("Current Game State:")
+                        #print(f"Blue Paddle: ({current_state['blue_paddle_x_raw']:.1f}, {current_state['blue_paddle_y_raw']:.1f})")
+                        #print(f"Red Paddle: ({current_state['red_paddle_x_raw']:.1f}, {current_state['red_paddle_y_raw']:.1f})")
+                        #print(f"Disc: ({current_state['disc_x_raw']:.1f}, {current_state['disc_y_raw']:.1f})")
+                        #print(f"Disc Velocity: ({current_state['disc_velocity_x_raw']:.1f}, {current_state['disc_velocity_y_raw']:.1f})")
+                        #print(f"  Blue paddle in own goal: {current_state['blue_paddle_in_own_goal']}")
+                        #print(f"  Red paddle in own goal: {current_state['red_paddle_in_own_goal']}")
+                        #print(f"Score: {self.score1} - {self.score2}")
+                        #print(f"Game Time: {current_state['game_time']:.1f}s")
+                        #print("current_input_vector (is normalized): ['score1': " + str(current_input_vector[0]) + ",")
+                        #print("'score2': " + str(current_input_vector[1]) + ",")
+                        #print("'blue_paddle_x': " + str(current_input_vector[2]) + ",")
+                        #print("'blue_paddle_y': " + str(current_input_vector[3]) + ",")
+                        #print("'red_paddle_x': " + str(current_input_vector[4]) + ",")
+                        #print("'red_paddle_y': " + str(current_input_vector[5]) + ",")
+                        #print("'disc_x': " + str(current_input_vector[6]) + ",")
+                        #print("'disc_y': " + str(current_input_vector[7]) + ",")
+                        #print("'disc_velocity_x': " + str(current_input_vector[8]) + ",")
+                        #print("'disc_velocity_y': " + str(current_input_vector[9])+ "\n]")
+                        #print("-" * 50)
+                    
                     # Store training data
-                    self.game_states.append(current_input_vector)
+                    #self.game_states.append(current_input_vector)
                     
                     # Update game state
                     self.update_game_state(keys)
@@ -625,15 +687,16 @@ class Game:
                 # Control frame rate - increased for better responsiveness
                 self.clock.tick(120)  # 120 FPS for ultra-smooth gameplay
                 frame_count += 1
-        
+                return self.get_game_state()
+
         finally:
             # Clean up textures before quitting
-            self.cleanup_textures()
+            #self.cleanup_textures()
             print(f"Game ended. Collected {len(self.game_states)} training samples.")
             pygame.quit()
 
 
 # Initialize and run the game
-if __name__ == "__main__":
-    game = Game()
-    game.run()
+#if __name__ == "__main__":
+#    game = Game()
+#    game.run()
