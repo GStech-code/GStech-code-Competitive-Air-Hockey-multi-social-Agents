@@ -52,10 +52,6 @@ class HockeyGame:
 
 
     def calculate_fitness(self, genome1, genome2, game_info):
-    # Calculate rewards (you can customize this)
-        blue_reward = 0
-        red_reward = 0
-        
         # Score rewards
         if new_state['score1'] > prev_state['score1']:
             blue_reward += 100  # Blue scored
