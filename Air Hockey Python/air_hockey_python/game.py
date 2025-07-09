@@ -22,7 +22,7 @@ class Game:
         
         # Create OpenGL context
         self.screen = pygame.display.set_mode((self.screen_width, self.screen_height), DOUBLEBUF | OPENGL)
-        pygame.display.set_caption("GPU-Accelerated Air Hockey")
+        pygame.display.set_caption("Air Hockey")
         
         # Initialize OpenGL
         self.init_opengl()
@@ -50,15 +50,12 @@ class Game:
         # Game state
         self.score1 = 0
         self.score2 = 0
+        self.num_hits = 0
         self.serve_direction = 1
         self.game_states = []
         #self.player1_actions = []
         #self.player2_actions = []
         self.max_score = 99
-        
-        # NEAT Control flags
-        self.neat_control_paddle1 = False # Left paddle
-        self.neat_control_paddle2 = False # Right paddle
         
         # Initialize game objects
         self.setup_game_objects()
@@ -111,25 +108,6 @@ class Game:
             15
         )
 
-    #def get_game_state(self):
-    #    """Get current game state for neural network"""
-    #    game_state = {
-    #        'disc_x': self.disc.center_x,
-    #        'disc_y': self.disc.center_y,
-    #        'disc_velocity_x': self.disc.x_vel,
-    #        'disc_velocity_y': self.disc.y_vel,
-    #        'blue_paddle_x': self.paddle1.center_x,
-    #        'blue_paddle_y': self.paddle1.center_y,
-    #        'red_paddle_x': self.paddle2.center_x,
-    #        'red_paddle_y': self.paddle2.center_y,
-    #        'blue_paddle_in_own_goal': self.paddle1.is_in_goal_area(self.screen_width, self.screen_height),
-    #        'red_paddle_in_own_goal': self.paddle2.is_in_goal_area(self.screen_width, self.screen_height),
-    #        'score1': self.score1,  # Blue Player (Left)
-    #        'score2': self.score2,  # Red Player (Right)
-    #        'serve_direction': self.serve_direction
-    #    }
-    #    return game_state
-
 
     def update_one_frame(self, paddle1_keys, paddle2_keys, render=False):
         """Run one frame of game logic. Optionally render for visual debugging."""
@@ -160,8 +138,10 @@ class Game:
         # Check paddle collisions
         if self.disc.check_paddle_collision(self.paddle1):
             self.disc.handle_paddle_collision(self.paddle1)
+            self.num_hits += 1
         if self.disc.check_paddle_collision(self.paddle2):
             self.disc.handle_paddle_collision(self.paddle2)
+            self.num_hits += 1
 
         # Optional rendering
         if render:
@@ -174,7 +154,7 @@ class Game:
             self.draw_circle(self.paddle2.center_x, self.paddle2.center_y, self.paddle2.radius, self.red)
 
             pygame.display.flip()
-            self.clock.tick(60)  # Limit to 60 FPS when rendering
+            #self.clock.tick(60)  # Limit to 60 FPS when rendering
 
         return self.get_game_state()
 
@@ -465,31 +445,34 @@ class Game:
     def get_game_state(self):
         """Get current game state for neural network (normelized)"""
         game_state = {
-            'blue_paddle_x': self.paddle1.center_x / (self.screen_width / 2), # [0]
-            'blue_paddle_y': self.paddle1.center_y / self.screen_height, # [1]
-            'red_paddle_x': (self.paddle2.center_x - self.screen_width / 2) / (self.screen_width / 2), # [2]
-            'red_paddle_y': self.paddle2.center_y / self.screen_height, # [3]
-            'disc_x': self.disc.center_x / self.screen_width, # [4]
-            'disc_y': self.disc.center_y / self.screen_height, # [5]
-            'disc_velocity_x': self.disc.x_vel / self.disc.max_speed, # [6]
-            'disc_velocity_y': self.disc.y_vel / self.disc.max_speed, # [7]
-            'blue_paddle_x_raw': self.paddle1.center_x, # [8]
-            'blue_paddle_y_raw': self.paddle1.center_y, # [9]
-            'red_paddle_x_raw': self.paddle2.center_x, # [10]
-            'red_paddle_y_raw': self.paddle2.center_y, # [11]
-            'disc_x_raw': self.disc.center_x, # [12]
-            'disc_y_raw': self.disc.center_y, # [13]
-            'disc_velocity_x_raw': self.disc.x_vel, # [14]
-            'disc_velocity_y_raw': self.disc.y_vel, # [15]
-            'blue_paddle_in_own_goal': self.paddle1.is_in_goal_area(self.screen_width, self.screen_height), # [16]
-            'red_paddle_in_own_goal': self.paddle2.is_in_goal_area(self.screen_width, self.screen_height), # [17]
-            'score1': self.score1, # [18]
-            'score2': self.score2, # [19]
-            'serve_direction': self.serve_direction, # [20]
-            'blue_paddle_to_disc_distance': math.sqrt((self.paddle1.center_x - self.disc.center_x)**2 + (self.paddle1.center_y - self.disc.center_y)**2), # [21]
-            'red_paddle_to_disc_distance': math.sqrt((self.paddle2.center_x - self.disc.center_x)**2 + (self.paddle2.center_y - self.disc.center_y)**2), # [22]
-            'game_time': (pygame.time.get_ticks() / 1000.0) - self.total_pause_time, # [23]
-            'paused': self.paused # [24]
+            'blue_paddle_actual_speed': self.paddle1.actual_speed / abs(self.paddle1.max_velocity),
+            'blue_paddle_x': self.paddle1.center_x / (self.screen_width / 2),
+            'blue_paddle_y': self.paddle1.center_y / self.screen_height,
+            'red_paddle_x': (self.paddle2.center_x - self.screen_width / 2) / (self.screen_width / 2),
+            'red_paddle_y': self.paddle2.center_y / self.screen_height,
+            'red_paddle_actual_speed': self.paddle2.actual_speed / abs(self.paddle2.max_velocity),
+            'disc_x': self.disc.center_x / self.screen_width,
+            'disc_y': self.disc.center_y / self.screen_height,
+            'disc_velocity_x': self.disc.x_vel / self.disc.max_speed,
+            'disc_velocity_y': self.disc.y_vel / self.disc.max_speed,
+            'blue_paddle_x_raw': self.paddle1.center_x,
+            'blue_paddle_y_raw': self.paddle1.center_y,
+            'red_paddle_x_raw': self.paddle2.center_x,
+            'red_paddle_y_raw': self.paddle2.center_y,
+            'disc_x_raw': self.disc.center_x,
+            'disc_y_raw': self.disc.center_y,
+            'disc_velocity_x_raw': self.disc.x_vel,
+            'disc_velocity_y_raw': self.disc.y_vel,
+            'blue_paddle_in_own_goal': self.paddle1.is_in_goal_area(self.screen_width, self.screen_height),
+            'red_paddle_in_own_goal': self.paddle2.is_in_goal_area(self.screen_width, self.screen_height),
+            'score1': self.score1,
+            'score2': self.score2,
+            'serve_direction': self.serve_direction,
+            'blue_paddle_to_disc_distance': math.sqrt((self.paddle1.center_x - self.disc.center_x)**2 + (self.paddle1.center_y - self.disc.center_y)**2),
+            'red_paddle_to_disc_distance': math.sqrt((self.paddle2.center_x - self.disc.center_x)**2 + (self.paddle2.center_y - self.disc.center_y)**2),
+            'game_time': (pygame.time.get_ticks() / 1000.0) - self.total_pause_time,
+            'num_hits': self.num_hits,
+            'paused': self.paused
         }
         return game_state
 
@@ -531,6 +514,7 @@ class Game:
         #self.player2_actions = []
         self.paused = False
         self.total_pause_time = 0
+        self.num_hits = 0
         self.reset_puck()
 
     def update_game_state(self, keys):
@@ -539,25 +523,9 @@ class Game:
             return  # Don't update game state when paused
             
         # Update paddles with higher frequency
-        # If neat_control_paddle1 is True, use NEAT output for paddle1
-        if self.neat_control_paddle1:
-            # Example NEAT output (replace with actual NEAT network output)
-            # For demonstration, let's make it go right slowly
-            neat_output_paddle1 = [0, 0.2, 0, 0] # Example: slight right movement
-            paddle1_keys = self.neat_requests(neat_output_paddle1, 'left')
-            self.paddle1.update(paddle1_keys, self.screen_width, self.screen_height)
-        else:
-            self.paddle1.update(keys, self.screen_width, self.screen_height)
+        self.paddle1.update(keys, self.screen_width, self.screen_height)
 
-        # If neat_control_paddle2 is True, use NEAT output for paddle2
-        if self.neat_control_paddle2:
-            # Example NEAT output (replace with actual NEAT network output)
-            # For demonstration, let's make it go left slowly
-            neat_output_paddle2 = [0.2, 0, 0, 0] # Example: slight left movement
-            paddle2_keys = self.neat_requests(neat_output_paddle2, 'right')
-            self.paddle2.update(paddle2_keys, self.screen_width, self.screen_height)
-        else:
-            self.paddle2.update(keys, self.screen_width, self.screen_height)
+        self.paddle2.update(keys, self.screen_width, self.screen_height)
         
         # Update disc with smoother physics
         self.disc.update(self.screen_width, self.screen_height)
@@ -619,12 +587,6 @@ class Game:
                             if not self.pause_pressed:
                                 self.toggle_pause()
                                 self.pause_pressed = True
-                        if event.key == pygame.K_1: # Toggle NEAT for Paddle 1
-                            self.neat_control_paddle1 = not self.neat_control_paddle1
-                            print(f"NEAT control for Player 1 (Blue) {'enabled' if self.neat_control_paddle1 else 'disabled'}")
-                        if event.key == pygame.K_2: # Toggle NEAT for Paddle 2
-                            self.neat_control_paddle2 = not self.neat_control_paddle2
-                            print(f"NEAT control for Player 2 (Red) {'enabled' if self.neat_control_paddle2 else 'disabled'}")
                     if event.type == pygame.KEYUP:
                         if event.key == pygame.K_p:
                             self.pause_pressed = False
@@ -687,7 +649,6 @@ class Game:
                 # Control frame rate - increased for better responsiveness
                 self.clock.tick(120)  # 120 FPS for ultra-smooth gameplay
                 frame_count += 1
-                return self.get_game_state()
 
         finally:
             # Clean up textures before quitting
@@ -697,6 +658,6 @@ class Game:
 
 
 # Initialize and run the game
-#if __name__ == "__main__":
-#    game = Game()
-#    game.run()
+if __name__ == "__main__":
+    game = Game()
+    game.run()

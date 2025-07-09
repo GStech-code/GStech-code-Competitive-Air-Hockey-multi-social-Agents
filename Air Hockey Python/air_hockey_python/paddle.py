@@ -27,7 +27,7 @@ class Paddle:
         self.prev_y = y
         self.actual_velocity_x = 0
         self.actual_velocity_y = 0
-        
+        self.actual_speed = 0
         # Input smoothing
         self.input_history = []
         self.input_history_size = 3
@@ -139,7 +139,7 @@ class Paddle:
         # Calculate actual velocity (how much the paddle actually moved)
         self.actual_velocity_x = self.center_x - self.prev_x
         self.actual_velocity_y = self.center_y - self.prev_y
-        self.current_speed = math.sqrt(self.current_velocity_x**2 + self.current_velocity_y**2)
+        self.actual_speed = math.sqrt(self.actual_velocity_x**2 + self.actual_velocity_y**2)
     
     def apply_boundaries(self, screen_width, screen_height):
         """Apply movement boundaries with collision buffer"""
