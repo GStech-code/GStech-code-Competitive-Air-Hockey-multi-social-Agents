@@ -14,6 +14,7 @@ class Paddle:
         self.side = side  # 'left' or 'right'
         self.player_controlled = player_controlled # Control flag for Player (True) or NEAT (False)
         self.color = (255, 100, 100) if side == 'left' else (20, 20, 100)
+        self.num_in_goal = 0
         
         # Enhanced movement system
         self.acceleration = 0.8
@@ -177,10 +178,14 @@ class Paddle:
         if self.side == 'left':
             goal_center = (0, screen_height / 2)
             distance = math.sqrt((self.center_x - goal_center[0])**2 + (self.center_y - goal_center[1])**2)
+            if distance <= goal_circle_radius and self.center_x >= 0:
+                self.num_in_goal += 1
             return distance <= goal_circle_radius and self.center_x >= 0
         else:
             goal_center = (screen_width, screen_height / 2)
             distance = math.sqrt((self.center_x - goal_center[0])**2 + (self.center_y - goal_center[1])**2)
+            if distance <= goal_circle_radius and self.center_x <= screen_width:
+                self.num_in_goal += 1
             return distance <= goal_circle_radius and self.center_x <= screen_width
     
     def get_movement_vector(self):
@@ -201,3 +206,4 @@ class Paddle:
         self.actual_velocity_x = 0
         self.actual_velocity_y = 0
         self.input_history = []
+        self.num_in_goal = 0

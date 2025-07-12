@@ -1,14 +1,17 @@
 from OpenGL.GL import glClear, glClearColor, GL_COLOR_BUFFER_BIT
 from air_hockey_python import Game
+import multiprocessing as mp
+from tqdm import tqdm
 import pickle
 import pygame
 import neat
+import time
 import os
 
 
 class HockeyGame:
     def __init__(self):
-        self.game = Game()
+        self.game = Game(render= False)
         self.paddle1 = self.game.paddle1
         self.paddle2 = self.game.paddle2
         self.disc = self.game.disc
@@ -150,11 +153,9 @@ class HockeyGame:
             # Just advance one frame of game logic, no OpenGL rendering
             game_info = self.game.update_one_frame(decision1, decision2, render= render_debug)
             
-            if (game_info['score1'] >= 8 and game_info['num_hits'] > 0) or (self.game.score2 >= 8 and game_info['num_hits'] > 0) or game_info['num_hits'] >= 30 or game_info['game_time'] > 80:
-                if game_info['game_time'] > 80:
-                    print("Time out!")
-                if game_info['num_hits'] >= 32:
-                    print(f"passed hits 32 hits")
+            if (game_info['score1'] >= 5 and game_info['num_blue_hits'] > 0) or (self.game.score2 >= 5 and game_info['num_red_hits'] > 0) or game_info['game_time'] > 20:
+                #if game_info['game_time'] > 20:
+                #    print("\nTime out!")
                 #else:
                     #print(f"score1 : score2\n     {game_info['score1']} : {game_info['score2']}")
                 self.calculate_fitness(genome1= genome1, genome2= genome2, game_info= game_info)
@@ -185,22 +186,20 @@ class HockeyGame:
         red_fitness += red_score
         
         # Penalties for being scored on
-        blue_fitness -= red_score * 0.5
-        red_fitness -= blue_score * 0.5
+        blue_fitness -= red_score / 2
+        red_fitness -= blue_score / 2
         
         # Penalty for being in own goal area (defensive behavior)
-        if game_info['blue_paddle_in_own_goal']:
-            #print("Blue in own goal")
-            blue_fitness -= 0.1
-        if game_info['red_paddle_in_own_goal']:
-            #print("Red in own goal")
-            red_fitness -= 0.1
+        blue_fitness -= game_info['blue_paddle_num_in_goal'] * game_info['blue_paddle_in_own_goal']
+        red_fitness -= game_info['red_paddle_num_in_goal'] * game_info['red_paddle_in_own_goal']
         
         # Reward active play - to hit the disk
-        if self.disc.check_paddle_collision(self.paddle1) and game_info['blue_paddle_in_own_goal'] == False:
-            blue_fitness += 0.1
-        if self.disc.check_paddle_collision(self.paddle2) and game_info['red_paddle_in_own_goal'] == False:
-            red_fitness += 0.1
+        blue_fitness += 0.25 * game_info['num_blue_hits']
+        red_fitness += 0.25 * game_info['num_red_hits']
+
+        # Penalty if the other player hits the disk
+        blue_fitness -= 0.25 * game_info['num_red_hits']
+        red_fitness -= 0.25 * game_info['num_blue_hits']
         
         
         # Ensure minimum fitness (avoid negative values that could cause issues)
@@ -215,34 +214,175 @@ class HockeyGame:
         #print(f"Blue fitness: {blue_fitness:.2f}, Red fitness: {red_fitness:.2f}")
         #print(f"Game ended - Blue: {blue_score}, Red: {red_score}")
 
-def eval_genomes(genomes, config):
-    n = 1
-    for i, (genome_id1, genome1) in enumerate(genomes):
-        #if i == len(genomes) -1:
-        #    break
-        genome1.fitness = 0
-        for genome_id2, genome2 in genomes[i+1:]:
+def play_match(match_data):
+    """
+    Function to run a single match between two genomes.
+    This function will be called by each worker process.
+    
+    Args:
+        match_data: Tuple containing (genome1, genome2, config)
+    
+    Returns:
+        Tuple of (genome1_id, genome2_id, fitness1, fitness2)
+    """
+    genome1, genome2, config = match_data
+    
+    # Create a new game instance for this match
+    hockey_game = HockeyGame()
+    
+    # Initialize fitness values
+    genome1.fitness = 0
+    genome2.fitness = 0
+    
+    # Run the training match
+    hockey_game.train_ai(genome1, genome2, config, render= False)
+    
+    # Return the results
+    return (genome1.key, genome2.key, genome1.fitness, genome2.fitness)
+
+
+def eval_genomes_parallel(genomes, config):
+    """
+    Parallel evaluation function that creates matches and distributes them across multiple processes.
+    """
+    # Prepare all matches
+    matches = [] # will hold all the individual match‑up tasks to dispatch to worker processes
+    # The 'genome_dict' maps genome IDs → genome objects,
+    # so that after running matches we can quickly look up and update each genome’s fitness
+    genome_dict = {}
+    
+    # Store genomes in dictionary for easy lookup
+    for genome_id, genome in genomes:
+        genome.fitness = 0
+        genome_dict[genome_id] = genome # Store each genome in genome_dict under its genome_id
+    
+    # Create all possible matches (round-robin tournament)
+    # Each pair plays twice - once with each genome in each position
+    for i, (genome_id1, genome1) in enumerate(genomes): # picks each genome in turn
+        for genome_id2, genome2 in genomes[i+1:]: # pairs with every subsequent genome (each unique pair appears only once)
             genome2.fitness = 0 if genome2.fitness == None else genome2.fitness
-            hockey_game = HockeyGame()
-            print(f"\nMatch #{n}")
-            hockey_game.train_ai(genome1, genome2, config, render= True)
-            n += 1
+            
+            # Create copies for first match (genome1 vs genome2)
+            genome1_copy_1 = neat.DefaultGenome(genome1.key)
+            genome1_copy_1.configure_new(config.genome_config)
+            genome1_copy_1.connections = genome1.connections.copy()
+            genome1_copy_1.nodes = genome1.nodes.copy()
+            
+            genome2_copy_1 = neat.DefaultGenome(genome2.key)
+            genome2_copy_1.configure_new(config.genome_config)
+            genome2_copy_1.connections = genome2.connections.copy()
+            genome2_copy_1.nodes = genome2.nodes.copy()
+            
+            # Create copies for second match (genome2 vs genome1)
+            genome1_copy_2 = neat.DefaultGenome(genome1.key)
+            genome1_copy_2.configure_new(config.genome_config)
+            genome1_copy_2.connections = genome1.connections.copy()
+            genome1_copy_2.nodes = genome1.nodes.copy()
+            
+            genome2_copy_2 = neat.DefaultGenome(genome2.key)
+            genome2_copy_2.configure_new(config.genome_config)
+            genome2_copy_2.connections = genome2.connections.copy()
+            genome2_copy_2.nodes = genome2.nodes.copy()
+            
+            # Add both match combinations
+            matches.append((genome1_copy_1, genome2_copy_1, config))  # genome1 left, genome2 right
+            matches.append((genome2_copy_2, genome1_copy_2, config))  # genome2 left, genome1 right
+    
+   # Use multiprocessing to run matches in parallel
+    num_processes = min(mp.cpu_count(), len(matches))  # Don't use more processes than matches
+    
+    print(f"Running {len(matches)} matches across {num_processes} processes...")
+    #print(f"Each genome pair plays 2 matches (once in each position)")
+    
+    # Use tqdm progress bar to track match progress
+    start_time = time.time()
+    
+    with mp.Pool(processes=num_processes) as pool:
+        # Use tqdm to track progress
+        results = []
+        with tqdm(total=len(matches), desc="Training Matches", unit="matches") as pbar:
+            for result in pool.imap(play_match, matches):
+                results.append(result)
+                pbar.update(1)
+    
+    # Calculate timing
+    end_time = time.time()
+    total_time = end_time - start_time
+    
+    # Aggregate fitness results back to original genomes
+    for genome1_id, genome2_id, fitness1, fitness2 in results:
+        genome_dict[genome1_id].fitness += fitness1
+        genome_dict[genome2_id].fitness += fitness2
+    
+    # Calculate statistics
+    avg_fitness = sum(g.fitness for _, g in genomes) / len(genomes)
+    best_fitness = max(g.fitness for _, g in genomes)
+    
+    print(f"Completed all matches in {total_time:.1f} seconds!")
+    print(f"Average fitness: {avg_fitness:.2f}")
+    print(f"Best fitness: {best_fitness:.2f}")
+
+
+class ProgressReporter(neat.reporting.BaseReporter):
+    """Custom reporter to track overall training progress."""
+    
+    def __init__(self, max_generations):
+        self.max_generations = max_generations
+        self.generation_count = 0
+        self.start_time = time.time()
+    
+    def start_generation(self, generation):
+        self.generation_count = generation
+        elapsed = time.time() - self.start_time
+        if generation > 0:
+            avg_time_per_gen = elapsed / generation
+            remaining_time = avg_time_per_gen * (self.max_generations - generation)
+            print(f"Generation {generation}/{self.max_generations} - "
+                  f"Time elapsed: {elapsed:.1f}s, Estimated remaining: {remaining_time:.1f}s")
+        else:
+            print(f"Generation {generation}/{self.max_generations} - Starting training...")
+    
+    def post_evaluate(self, config, population, species, best_genome):
+        generation = self.generation_count
+        if population:
+            avg_fitness = sum(g.fitness for g in population.values()) / len(population)
+            print(f"Generation {generation} completed - Best fitness: {best_genome.fitness:.2f}, "
+                  f"Average fitness: {avg_fitness:.2f}")
 
 
 def run_neat(config):
-    #p = neat.Checkpointer.restore_checkpoint('neat-checkpoint-27')
-    p = neat.Population(config)
+    """
+    Run NEAT training with parallel evaluation and progress tracking.
+    """
+    max_generations = 50
+    
+    # Create population
+    p = neat.Checkpointer.restore_checkpoint('neat-checkpoint-6')
+    #p = neat.Population(config)
+    
+    # Add reporters
     p.add_reporter(neat.StdOutReporter(True))
     stats = neat.StatisticsReporter()
     p.add_reporter(stats)
     p.add_reporter(neat.Checkpointer(1))
-
-    winner = p.run(eval_genomes, 50)
+    p.add_reporter(ProgressReporter(max_generations))
+    
+    # Run evolution with parallel evaluation
+    print(f"Starting NEAT training with {max_generations} generations...")
+    print(f"Using {min(mp.cpu_count(), 8)} CPU cores for parallel processing\n")
+    
+    winner = p.run(eval_genomes_parallel, max_generations)
+    
+    # Save the best genome
     with open("best.pickle", "wb") as f:
         pickle.dump(winner, f)
-        print("Saving the best genome to the pickle file \"best.pickle\"")
-        print("\"best.pickle\" has a fitness of", winner.fitness)
-
+        print("\n" + "="*50)
+        print("TRAINING COMPLETED!")
+        print("="*50)
+        print(f"Saving the best genome to the pickle file 'best.pickle'")
+        print(f"Best genome fitness: {winner.fitness}")
+        total_time = time.time() - p.reporters.reporters[-1].start_time
+        print(f"Total training time: {total_time:.2f} seconds")
 
 def test_ai(config):
     with open("best.pickle", "rb") as f:
@@ -252,6 +392,9 @@ def test_ai(config):
 
 
 if __name__ == "__main__":
+    #Required for multiprocessing on Windows
+    mp.set_start_method('spawn', force=True)
+
     local_dir = os.path.dirname(__file__)
     config_path = os.path.join(local_dir, "config.txt")
 

@@ -1,8 +1,9 @@
 # .\venv\Scripts\Activate.ps1
 # python -m air_hockey_python.game
-import pygame
+import os
 import time
 import math
+import pygame
 from pygame.locals import *
 from OpenGL.GL import *
 from OpenGL.GLU import *
@@ -12,20 +13,24 @@ from air_hockey_python.helper_functions import draw_two_digit_score
 
 
 class Game:
-    def __init__(self):
+    def __init__(self, render=True):
         """Initialize the game"""
+        if not render:
+            # tell SDL to use the dummy video driver (no window)
+            os.environ["SDL_VIDEODRIVER"] = "dummy"
         pygame.init()
         
         # Screen dimensions
         self.screen_width = 800
         self.screen_height = 600
         
-        # Create OpenGL context
-        self.screen = pygame.display.set_mode((self.screen_width, self.screen_height), DOUBLEBUF | OPENGL)
-        pygame.display.set_caption("Air Hockey")
-        
-        # Initialize OpenGL
-        self.init_opengl()
+        if render:
+            # only create a window when you actually want to see it
+            self.screen = pygame.display.set_mode((self.screen_width, self.screen_height), DOUBLEBUF|OPENGL)
+            # Initialize OpenGL
+            self.init_opengl()
+            #pygame.display.set_caption("Air Hockey")
+
         
         # Game timing
         self.clock = pygame.time.Clock()
@@ -50,7 +55,8 @@ class Game:
         # Game state
         self.score1 = 0
         self.score2 = 0
-        self.num_hits = 0
+        self.num_blue_hits = 0
+        self.num_red_hits = 0
         self.serve_direction = 1
         self.game_states = []
         #self.player1_actions = []
@@ -138,10 +144,10 @@ class Game:
         # Check paddle collisions
         if self.disc.check_paddle_collision(self.paddle1):
             self.disc.handle_paddle_collision(self.paddle1)
-            self.num_hits += 1
+            self.num_blue_hits += 1 if self.paddle1.is_in_goal_area == False else 0
         if self.disc.check_paddle_collision(self.paddle2):
             self.disc.handle_paddle_collision(self.paddle2)
-            self.num_hits += 1
+            self.num_red_hits += 1  if self.paddle2.is_in_goal_area == False else 0
 
         # Optional rendering
         if render:
@@ -465,13 +471,16 @@ class Game:
             'disc_velocity_y_raw': self.disc.y_vel,
             'blue_paddle_in_own_goal': self.paddle1.is_in_goal_area(self.screen_width, self.screen_height),
             'red_paddle_in_own_goal': self.paddle2.is_in_goal_area(self.screen_width, self.screen_height),
+            'blue_paddle_num_in_goal': self.paddle1.num_in_goal,
+            'red_paddle_num_in_goal': self.paddle2.num_in_goal,
             'score1': self.score1,
             'score2': self.score2,
             'serve_direction': self.serve_direction,
             'blue_paddle_to_disc_distance': math.sqrt((self.paddle1.center_x - self.disc.center_x)**2 + (self.paddle1.center_y - self.disc.center_y)**2),
             'red_paddle_to_disc_distance': math.sqrt((self.paddle2.center_x - self.disc.center_x)**2 + (self.paddle2.center_y - self.disc.center_y)**2),
             'game_time': (pygame.time.get_ticks() / 1000.0) - self.total_pause_time,
-            'num_hits': self.num_hits,
+            'num_blue_hits': self.num_blue_hits,
+            'num_red_hits': self.num_red_hits,
             'paused': self.paused
         }
         return game_state
@@ -514,7 +523,8 @@ class Game:
         #self.player2_actions = []
         self.paused = False
         self.total_pause_time = 0
-        self.num_hits = 0
+        self.num_blue_hits = 0
+        self.num_red_hits = 0
         self.reset_puck()
 
     def update_game_state(self, keys):
