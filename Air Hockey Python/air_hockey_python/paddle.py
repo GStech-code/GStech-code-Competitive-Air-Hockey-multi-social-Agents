@@ -15,6 +15,8 @@ class Paddle:
         self.player_controlled = player_controlled # Control flag for Player (True) or NEAT (False)
         self.color = (255, 100, 100) if side == 'left' else (20, 20, 100)
         self.num_in_goal = 0
+        self.times_not_moving = 0
+        self.touching_wall = False
         
         # Enhanced movement system
         self.acceleration = 0.8
@@ -141,6 +143,8 @@ class Paddle:
         self.actual_velocity_x = self.center_x - self.prev_x
         self.actual_velocity_y = self.center_y - self.prev_y
         self.actual_speed = math.sqrt(self.actual_velocity_x**2 + self.actual_velocity_y**2)
+        self.times_not_moving += 1 if self.actual_speed <= 0.02 else 0
+
     
     def apply_boundaries(self, screen_width, screen_height):
         """Apply movement boundaries with collision buffer"""
@@ -148,9 +152,12 @@ class Paddle:
         if self.center_y - self.radius < self.collision_buffer:
             self.center_y = self.radius + self.collision_buffer
             self.current_velocity_y = 0
+            #self.touching_wall = True
+
         elif self.center_y + self.radius > screen_height - self.collision_buffer:
             self.center_y = screen_height - self.radius - self.collision_buffer
             self.current_velocity_y = 0
+            #self.touching_wall = True
         
         # Side boundaries
         if self.side == 'left':
@@ -158,17 +165,30 @@ class Paddle:
             if self.center_x - self.radius < self.collision_buffer:
                 self.center_x = self.radius + self.collision_buffer
                 self.current_velocity_x = 0
+                self.touching_wall = True
             elif self.center_x + self.radius > screen_width / 2 - self.collision_buffer:
                 self.center_x = screen_width / 2 - self.radius - self.collision_buffer
                 self.current_velocity_x = 0
+                self.touching_wall = True
+            
+            else:
+                self.touching_wall = False
+        
         else:
             # Right paddle boundaries
             if self.center_x + self.radius > screen_width - self.collision_buffer:
                 self.center_x = screen_width - self.radius - self.collision_buffer
                 self.current_velocity_x = 0
+                self.touching_wall = True
+
             elif self.center_x - self.radius < screen_width / 2 + self.collision_buffer:
                 self.center_x = screen_width / 2 + self.radius + self.collision_buffer
                 self.current_velocity_x = 0
+                self.touching_wall = True
+            
+            else:
+                self.touching_wall = False
+
     
     
     def is_in_goal_area(self, screen_width, screen_height):
@@ -188,14 +208,7 @@ class Paddle:
                 self.num_in_goal += 1
             return distance <= goal_circle_radius and self.center_x <= screen_width
     
-    def get_movement_vector(self):
-        """Get current movement vector for physics calculations"""
-        return np.array([self.current_velocity_x, self.current_velocity_y])
-    
-    #def draw(self, screen):
-    #    """Draw the paddle - Note: This is for pygame compatibility"""
-    #    # This method is kept for compatibility but won't be used in OpenGL version
-    #    pygame.draw.circle(screen, self.color, (int(self.center_x), int(self.center_y)), self.radius)
+
     
     def reset_position(self, x, y):
         """Reset paddle to specific position"""
@@ -207,3 +220,4 @@ class Paddle:
         self.actual_velocity_y = 0
         self.input_history = []
         self.num_in_goal = 0
+        self.times_not_moving = 0

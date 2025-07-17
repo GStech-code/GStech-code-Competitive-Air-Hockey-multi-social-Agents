@@ -4,7 +4,9 @@ import multiprocessing as mp
 from tqdm import tqdm
 import pickle
 import pygame
+import random
 import neat
+import math
 import time
 import os
 
@@ -12,9 +14,13 @@ import os
 class HockeyGame:
     def __init__(self):
         self.game = Game(render= False)
+        self.game.max_score = 2
         self.paddle1 = self.game.paddle1
         self.paddle2 = self.game.paddle2
         self.disc = self.game.disc
+        self.screen_width = self.game.screen_width
+        self.screen_height = self.game.screen_height
+
 
 
     def test_ai(self, genome, config):
@@ -51,36 +57,34 @@ class HockeyGame:
             
             # AI controls blue paddle (left side)
             # Get current game state for AI input
-            ai_input = (
-                self.paddle1.center_x / (self.game.screen_width / 2) * -1,  # Blue paddle x (normalized)
-                self.paddle1.center_y / self.game.screen_height,            # Blue paddle y (normalized)
-                self.paddle1.current_speed,                                 # Blue paddle speed
-                self.paddle2.center_x - (self.game.screen_width / 2),       # Red paddle x (offset)
-                self.paddle2.center_y,                                      # Red paddle y
-                self.disc.center_x - (self.game.screen_width / 2),          # Disc x (offset)
-                self.paddle2.current_speed,                                 # Red paddle speed
-                self.disc.center_y,                                         # Disc y
-                self.disc.x_vel,                                            # Disc x velocity
-                self.disc.y_vel                                             # Disc y velocity
-            )
+            ai_input = self.get_normalized_inputs_for_paddle('left')
+            ai_output = net.activate(ai_input)
+            ai_decision = self.process_neat_output(ai_output, 'left')
             
-            output = net.activate(ai_input)
-            ai_decision = self.game.neat_requests(output, 'left')
+            # DEBUG: Print every 60 frames (once per second)
+            if pygame.time.get_ticks() % 1000 < 16:  # Roughly once per second
+                print(f"AI Input: {[f'{x:.2f}' for x in ai_input]}")
+                print(f"AI Output: {[f'{x:.2f}' for x in ai_output]}")
+                print(f"AI Decision: {ai_decision}")
+                print(f"Any movement: {any(ai_decision.values())}")
+                print("---")
             
-            # Update AI paddle
-            self.paddle1.update(ai_decision, self.game.screen_width, self.game.screen_height)
+            if all(value <= 0.5 for value in ai_decision.values()):
+                pass
+            else:
+                self.paddle1.update(ai_decision, self.screen_width, self.screen_height)
             
             # Human controls red paddle (right side)
             keys = pygame.key.get_pressed()
-            self.paddle2.update(keys, self.game.screen_width, self.game.screen_height)
+            self.paddle2.update(keys, self.screen_width, self.screen_height)
             
             # Update disc physics
-            self.disc.update(self.game.screen_width, self.game.screen_height)
-            self.disc.check_wall_collision(self.game.screen_width, self.game.screen_height)
+            self.disc.update(self.screen_width, self.screen_height)
+            self.disc.check_wall_collision(self.screen_width, self.screen_height)
             
             # Check scoring
             score_left, score_right = self.disc.check_side_collision(
-                self.game.screen_width, self.game.screen_height, self.game.goal1, self.game.goal2
+                self.screen_width, self.screen_height, self.game.goal1, self.game.goal2
             )
             if score_left:
                 self.game.score1 += 1
@@ -133,86 +137,282 @@ class HockeyGame:
         net1 = neat.nn.FeedForwardNetwork.create(genome1, config)
         net2 = neat.nn.FeedForwardNetwork.create(genome2, config)
         run = True
+        max_points = self.game.max_score
         while run:
-            output1 = net1.activate((self.paddle1.center_x / (self.game.screen_width / 2) * -1, self.paddle1.center_y / self.game.screen_height, self.paddle1.current_speed, self.paddle2.center_x - (self.game.screen_width / 2), self.paddle2.center_y, self.disc.center_x - (self.game.screen_width / 2), self.paddle2.current_speed, self.disc.center_y, self.disc.x_vel, self.disc.y_vel)) # Blue
-            decision1 = self.game.neat_requests(output1, 'left')
-            if all(value <= 0.5 for value in decision1.values()):
+            # Blue paddle (left)
+            blue_inputs = self.get_normalized_inputs_for_paddle('left')
+            blue_output = net1.activate(blue_inputs)
+            blue_decision = self.process_neat_output(blue_output, 'left')
+            #output1 = net1.activate((self.paddle1.center_x / (self.game.screen_width / 2) * -1, self.paddle1.center_y / self.game.screen_height, self.paddle1.current_speed, self.paddle2.center_x - (self.game.screen_width / 2), self.paddle2.center_y, self.disc.center_x - (self.game.screen_width / 2), self.paddle2.current_speed, self.disc.center_y, self.disc.x_vel, self.disc.y_vel)) # Blue
+            #decision1 = self.game.neat_requests(output1, 'left')
+            if all(value <= 0.5 for value in blue_decision.values()):
                 pass
             else:
-                self.paddle1.update(decision1, self.game.screen_width, self.game.screen_height)
+                self.paddle1.update(blue_decision, self.screen_width, self.screen_height)
             
-            output2 = net2.activate((self.paddle2.center_x - (self.game.screen_width / 2), self.paddle2.center_y, self.paddle2.current_speed, self.paddle1.center_x / (self.game.screen_width / 2) * -1,  self.paddle1.center_y / self.game.screen_height, self.paddle1.current_speed, self.disc.center_x - (self.game.screen_width / 2), self.disc.center_y, self.disc.x_vel, self.disc.y_vel)) # Red
-            decision2 = self.game.neat_requests(output2, 'right')
-            if all(value <= 0.5 for value in decision2.values()):
+            red_inputs = self.get_normalized_inputs_for_paddle('right')
+            red_output = net2.activate(red_inputs)
+            red_decision = self.process_neat_output(red_output, 'right')
+            #output2 = net2.activate((self.paddle2.center_x - (self.game.screen_width / 2), self.paddle2.center_y, self.paddle2.current_speed, self.paddle1.center_x / (self.game.screen_width / 2) * -1,  self.paddle1.center_y / self.game.screen_height, self.paddle1.current_speed, self.disc.center_x - (self.game.screen_width / 2), self.disc.center_y, self.disc.x_vel, self.disc.y_vel)) # Red
+            #decision2 = self.game.neat_requests(output2, 'right')
+            if all(value <= 0.5 for value in red_decision.values()):
                 pass
             else:
-                self.paddle2.update(decision2, self.game.screen_width, self.game.screen_height)
+                self.paddle2.update(red_decision, self.screen_width, self.screen_height)
             
             #print(f"Blue decision: {decision1}\nRed decision: {decision2}")
 
             # Just advance one frame of game logic, no OpenGL rendering
-            game_info = self.game.update_one_frame(decision1, decision2, render= render_debug)
-            
-            if (game_info['score1'] >= 5 and game_info['num_blue_hits'] > 0) or (self.game.score2 >= 5 and game_info['num_red_hits'] > 0) or game_info['game_time'] > 20:
+            game_info = self.game.update_one_frame(blue_decision, red_decision, render= render_debug)
+            game_info['blue_paddle_num_in_goal'] += 1 if  game_info['blue_paddle_in_own_goal'] else 0
+            game_info['red_paddle_num_in_goal'] += 1 if  game_info['red_paddle_in_own_goal'] else 0
+
+
+            #if pygame.time.get_ticks() % 1000 < 16:  # Roughly once per second
+            #    print(f"Blue output: {[f'{x:.2f}' for x in blue_output]} Any movement of blue: {any(blue_decision.values())}")
+            #    print(f"Red output: {[f'{x:.2f}' for x in red_output]} Any movement of red: {any(red_decision.values())}")
+            #    print("---")
+            self.calculate_fitness(genome1= genome1, genome2= genome2, game_info= game_info)
+
+            if (game_info['score1'] >= max_points) or (self.game.score2 >= max_points) or game_info['game_time'] > 20:
                 #if game_info['game_time'] > 20:
                 #    print("\nTime out!")
                 #else:
                     #print(f"score1 : score2\n     {game_info['score1']} : {game_info['score2']}")
-                self.calculate_fitness(genome1= genome1, genome2= genome2, game_info= game_info)
+                
+                #self.calculate_fitness(genome1= genome1, genome2= genome2, game_info= game_info)
                 break
         
         pygame.quit()
 
+    # input normalization and neural network processing
+    def get_normalized_inputs_for_paddle(self, paddle_side):
+        """Get properly normalized inputs for a paddle"""
+        if paddle_side == 'left':
+            # Blue paddle (left side)
+            paddle = self.paddle1
+            opponent = self.paddle2
+            # Normalize paddle position to [-1, 1] for x, [0, 1] for y
+            paddle_x = (paddle.center_x - self.screen_width/4) / (self.screen_width/4)
+            paddle_y = paddle.center_y / self.screen_height
+            # Opponent position relative to paddle
+            opponent_x = (opponent.center_x - paddle.center_x) / (self.screen_width/2)
+            opponent_y = (opponent.center_y - paddle.center_y) / self.screen_height
+            # Disc position relative to paddle
+            disc_x = (self.disc.center_x - paddle.center_x) / (self.screen_width/2)
+            disc_y = (self.disc.center_y - paddle.center_y) / self.screen_height
+        else:
+            # Red paddle (right side)
+            paddle = self.paddle2
+            opponent = self.paddle1
+            # Normalize paddle position to [-1, 1] for x, [0, 1] for y
+            paddle_x = (paddle.center_x - 3*self.screen_width/4) / (self.screen_width/4)
+            paddle_y = paddle.center_y / self.screen_height
+            # Opponent position relative to paddle
+            opponent_x = (opponent.center_x - paddle.center_x) / (self.screen_width/2)
+            opponent_y = (opponent.center_y - paddle.center_y) / self.screen_height
+            # Disc position relative to paddle
+            disc_x = (self.disc.center_x - paddle.center_x) / (self.screen_width/2)
+            disc_y = (self.disc.center_y - paddle.center_y) / self.screen_height
+        
+        return [
+            paddle_x,                           # Paddle X position (normalized)
+            paddle_y,                           # Paddle Y position (normalized)
+            paddle.actual_speed / paddle.max_velocity,  # Paddle speed (normalized)
+            opponent_x,                         # Opponent X relative to paddle
+            opponent_y,                         # Opponent Y relative to paddle
+            disc_x,                             # Disc X relative to paddle
+            disc_y,                             # Disc Y relative to paddle
+            self.disc.x_vel / self.disc.max_speed,      # Disc X velocity (normalized)
+            self.disc.y_vel / self.disc.max_speed,      # Disc Y velocity (normalized)
+            # Additional strategic inputs:
+            self.disc.center_x / self.screen_width,     # Disc absolute X position
+            # Distance to disc (normalized)
+            min(1.0, math.sqrt((paddle.center_x - self.disc.center_x)**2 + 
+                            (paddle.center_y - self.disc.center_y)**2) / 200),
+            # Is disc moving toward paddle? (dot product of disc velocity and paddle-to-disc vector)
+            self.calculate_disc_approach_factor(paddle)
+        ]
 
-    def calculate_fitness(self, genome1, genome2, game_info):
-        """
-        Calculate fitness for both genomes based on game performance
+    def calculate_disc_approach_factor(self, paddle):
+        """Calculate if disc is approaching the paddle"""
+        # Vector from disc to paddle
+        dx = paddle.center_x - self.disc.center_x
+        dy = paddle.center_y - self.disc.center_y
+        # Normalize
+        dist = math.sqrt(dx*dx + dy*dy)
+        if dist == 0:
+            return 0
+        dx /= dist
+        dy /= dist
+        # Dot product with disc velocity (normalized)
+        vel_mag = math.sqrt(self.disc.x_vel**2 + self.disc.y_vel**2)
+        if vel_mag == 0:
+            return 0
+        approach_factor = (dx * self.disc.x_vel + dy * self.disc.y_vel) / vel_mag
+        return max(-1, min(1, approach_factor))
+
+    def process_neat_output(self, neat_output, paddle_side):
+        """Apply actions from NEAT neural networks to the paddles
         
         Args:
-            genome1: Blue paddle genome (left side)
-            genome2: Red paddle genome (right side)  
+            neat_output: List of 4 values [left, right, up, down] for a paddle (0-1)
+            side: 'left' or 'right' to determine which paddle's controls to mock
         """
+        # Convert 2-output neural network to movement commands for paddle update
+        # The neural network outputs values between -1 and 1
         
-        # Initialize fitness values
+        # Create a mock keys dictionary for the paddles
+        # Convert to movement commands with deadzone to prevent jitter
+        deadzone = 0.05
+        
+        x_movement = neat_output[0] if abs(neat_output[0]) > deadzone else 0
+        y_movement = neat_output[1] if abs(neat_output[1]) > deadzone else 0
+
+         # Create movement dictionary
+        if paddle_side == 'left':
+            # Blue paddle (WASD)
+            movement = {
+                pygame.K_a: x_movement < -deadzone,    # left
+                pygame.K_d: x_movement > deadzone,     # right
+                pygame.K_w: y_movement < -deadzone,    # up
+                pygame.K_s: y_movement > deadzone,     # down
+            }
+        else:
+            # Red paddle (Arrow keys)
+            movement = {
+                pygame.K_LEFT: x_movement < -deadzone,   # left
+                pygame.K_RIGHT: x_movement > deadzone,  # right
+                pygame.K_UP: y_movement < -deadzone,    # up
+                pygame.K_DOWN: y_movement > deadzone,   # down
+            }
+        
+        return movement
+
+    # Improved fitness function
+    def calculate_fitness(self, genome1, genome2, game_info):
+        """
+        Improved fitness calculation with better balance
+        """
         blue_fitness = 0
         red_fitness = 0
-        
-        # Basic scoring rewards/penalties
-        blue_score = self.game.score1
-        red_score = self.game.score2
-        
-        # Major rewards for scoring
-        blue_fitness += blue_score
-        red_fitness += red_score
-        
-        # Penalties for being scored on
-        blue_fitness -= red_score / 2
-        red_fitness -= blue_score / 2
-        
-        # Penalty for being in own goal area (defensive behavior)
-        blue_fitness -= game_info['blue_paddle_num_in_goal'] * game_info['blue_paddle_in_own_goal']
-        red_fitness -= game_info['red_paddle_num_in_goal'] * game_info['red_paddle_in_own_goal']
-        
-        # Reward active play - to hit the disk
-        blue_fitness += 0.25 * game_info['num_blue_hits']
-        red_fitness += 0.25 * game_info['num_red_hits']
+        max_points = self.game.max_score
 
-        # Penalty if the other player hits the disk
-        blue_fitness -= 0.25 * game_info['num_red_hits']
-        red_fitness -= 0.25 * game_info['num_blue_hits']
+        corner_threshold = 50  # Distance from corner to be considered "in corner"
         
+        blue_in_corner = (
+            (self.paddle1.center_x < corner_threshold and self.paddle1.center_y < corner_threshold) or
+            (self.paddle1.center_x > self.game.screen_width - corner_threshold and self.paddle1.center_y < corner_threshold) or
+            (self.paddle1.center_x < corner_threshold and self.paddle1.center_y > self.game.screen_height - corner_threshold) or
+            (self.paddle1.center_x > self.game.screen_width - corner_threshold and self.paddle1.center_y > self.game.screen_height - corner_threshold)
+        )
         
-        # Ensure minimum fitness (avoid negative values that could cause issues)
-        blue_fitness = max(0, blue_fitness)
-        red_fitness = max(0, red_fitness)
+        red_in_corner = (
+            (self.paddle2.center_x < corner_threshold and self.paddle2.center_y < corner_threshold) or
+            (self.paddle2.center_x > self.game.screen_width - corner_threshold and self.paddle2.center_y < corner_threshold) or
+            (self.paddle2.center_x < corner_threshold and self.paddle2.center_y > self.game.screen_height - corner_threshold) or
+            (self.paddle2.center_x > self.game.screen_width - corner_threshold and self.paddle2.center_y > self.game.screen_height - corner_threshold)
+        )
+
+        if (game_info['score1'] >= max_points) or (self.game.score2 >= max_points) or game_info['game_time'] > 20:
+            blue_score = self.game.score1
+            red_score = self.game.score2
+            
+            # 1. SCORING REWARDS (most important)
+            blue_fitness += (blue_score / max_points) * 50.0          # Big reward for scoring
+            red_fitness += (red_score / max_points) * 50.0
+            
+            # 2. DEFENSIVE PENALTIES (but not too harsh)
+            blue_fitness -= (red_score / max_points) * 15.0            # Penalty for being scored on
+            red_fitness -= (blue_score / max_points) * 15.0
+    
+        # 3. ACTIVE PLAY REWARDS for hitting the disc (but not if you're in a corner)
+        if self.disc.check_paddle_collision(self.paddle1) and not blue_in_corner:
+            blue_fitness += 1.0    # Reward hitting the puck
+        if self.disc.check_paddle_collision(self.paddle2) and not red_in_corner:
+            red_fitness +=  1.0    # Reward hitting the puck
+    
+        # 4. POSITIONING REWARDS
+        # Reward being close to disc when it's on your side
+        blue_fitness += self.calculate_positioning_reward(self.paddle1, 'left')
+        red_fitness += self.calculate_positioning_reward(self.paddle2, 'right')
         
-        # Assign fitness to genomes
+        # 5. ACTIVITY REWARDS (prevent staying still)
+        game_time = max(1, game_info['game_time'])
+
+        # Calculate movement ratio (lower is worse)
+        blue_movement_ratio = 1.0 - (game_info['blue_paddle_times_not_moving'] / game_time)
+        red_movement_ratio = 1.0 - (game_info['red_paddle_times_not_moving'] / game_time)
+        blue_fitness += max(0, blue_movement_ratio) * 2
+        red_fitness += max(0, red_movement_ratio) * 2
+
+        # Heavy penalty for staying still
+        blue_fitness -= (1.0 - blue_movement_ratio) * 10.0  # Increased penalty
+        red_fitness -= (1.0 - red_movement_ratio) * 10.0
+
+        # 6. GOAL AREA PENALTIES (prevent camping in goal)
+        blue_fitness -= 0.1 * game_info['blue_paddle_num_in_goal'] / game_info['game_time']
+        red_fitness -= 0.1 * game_info['red_paddle_num_in_goal'] / game_info['game_time']
+        
+        # Penalty for staying too close to corners and walls
+        if self.paddle1.touching_wall:
+            blue_fitness -= 0.5
+        if self.paddle2.touching_wall:
+            red_fitness -= 0.5
+        if blue_in_corner:
+            blue_fitness -= 0.2
+        if red_in_corner:
+            red_fitness -= 0.2
+        
+        # 7. STRATEGIC BONUSES
+        # Bonus for winning quickly
+        if self.game.score1 > self.game.score2:
+            blue_fitness += max(0, 5.0 - game_info['game_time'] * 0.1)
+        elif self.game.score2 > self.game.score1:
+            red_fitness += max(0, 5.0 - game_info['game_time'] * 0.1)
+        
+        # 8. CONSISTENCY BONUS (reward consistent performance)
+        if game_info['num_blue_hits'] > 0:
+            blue_fitness += min(2.0, game_info['num_blue_hits'] * 0.5)
+        if game_info['num_red_hits'] > 0:
+            red_fitness += min(2.0, game_info['num_red_hits'] * 0.5)
+        
+        # Ensure minimum fitness
+        blue_fitness = max(0.1, blue_fitness)
+        red_fitness = max(0.1, red_fitness)
+        
+        # Assign fitness
         genome1.fitness += blue_fitness
         genome2.fitness += red_fitness
+
+    def calculate_positioning_reward(self, paddle, side):
+        """Calculate reward for good positioning"""
+        reward = 0
         
-        # Optional: Print fitness for debugging
-        #print(f"Blue fitness: {blue_fitness:.2f}, Red fitness: {red_fitness:.2f}")
-        #print(f"Game ended - Blue: {blue_score}, Red: {red_score}")
+        # Distance to disc (closer is better when disc is on your side)
+        disc_distance = math.sqrt((paddle.center_x - self.disc.center_x)**2 + 
+                                (paddle.center_y - self.disc.center_y)**2)
+        
+        # Check if disc is on paddle's side
+        if side == 'left' and self.disc.center_x < self.screen_width/2:
+            # Disc is on blue side
+            reward += max(0, 1.0 - disc_distance / 200) * 2 # Reward being close
+        elif side == 'right' and self.disc.center_x > self.screen_width/2:
+            # Disc is on red side
+            reward += max(0, 1.0 - disc_distance / 200) * 2  # Reward being close
+        else:
+            # Disc is on opponent's side - reward defensive positioning
+            if side == 'left':
+                # Blue paddle should be somewhat centered in their half
+                center_x = self.screen_width / 4
+            else:
+                # Red paddle should be somewhat centered in their half
+                center_x = 3 * self.screen_width / 4
+            
+            distance_from_center = abs(paddle.center_x - center_x)
+            reward += max(0, 0.5 - distance_from_center / 100)
+        
+        return reward
 
 def play_match(match_data):
     """
@@ -308,11 +508,91 @@ def eval_genomes_parallel(genomes, config):
     # Calculate timing
     end_time = time.time()
     total_time = end_time - start_time
-    
-    # Aggregate fitness results back to original genomes
+    num_results = len(results)
+    # Aggregate average fitness results back to original genomes
     for genome1_id, genome2_id, fitness1, fitness2 in results:
-        genome_dict[genome1_id].fitness += fitness1
-        genome_dict[genome2_id].fitness += fitness2
+        genome_dict[genome1_id].fitness += fitness1 / num_results
+        genome_dict[genome2_id].fitness += fitness2 / num_results
+    
+    # Calculate statistics
+    avg_fitness = sum(g.fitness for _, g in genomes) / len(genomes)
+    best_fitness = max(g.fitness for _, g in genomes)
+    
+    print(f"Completed all matches in {total_time:.1f} seconds!")
+    print(f"Average fitness: {avg_fitness:.2f}")
+    print(f"Best fitness: {best_fitness:.2f}")
+
+def eval_genomes_swiss(genomes, config, matches_per_genome= 5):
+    """
+    Swiss tournament: each genome plays against a fixed number of opponents
+    """
+    matches = []
+    genome_dict = {}
+    
+    for genome_id, genome in genomes:
+        genome.fitness = 0
+        genome_dict[genome_id] = genome
+    
+    genome_list = list(genomes)
+    
+    for i, (genome_id1, genome1) in enumerate(genome_list):
+        # Select opponents (can be random or based on fitness)
+        num_opponents = min(matches_per_genome, len(genome_list) - 1)
+        
+        # Random selection of opponents
+        other_genomes = genome_list[:i] + genome_list[i+1:]
+        opponents = random.sample(other_genomes, num_opponents)
+        
+        for _, opponent in opponents:
+            # Create copies for first match (genome1 vs genome2)
+            genome1_copy_1 = neat.DefaultGenome(genome1.key)
+            genome1_copy_1.configure_new(config.genome_config)
+            genome1_copy_1.connections = genome1.connections.copy()
+            genome1_copy_1.nodes = genome1.nodes.copy()
+            
+            opponent_copy_1 = neat.DefaultGenome(opponent.key)
+            opponent_copy_1.configure_new(config.genome_config)
+            opponent_copy_1.connections = opponent.connections.copy()
+            opponent_copy_1.nodes = opponent.nodes.copy()
+            
+            # Create copies for second match (genome2 vs genome1)
+            genome1_copy_2 = neat.DefaultGenome(genome1.key)
+            genome1_copy_2.configure_new(config.genome_config)
+            genome1_copy_2.connections = genome1.connections.copy()
+            genome1_copy_2.nodes = genome1.nodes.copy()
+            
+            opponent_copy_2 = neat.DefaultGenome(opponent.key)
+            opponent_copy_2.configure_new(config.genome_config)
+            opponent_copy_2.connections = opponent.connections.copy()
+            opponent_copy_2.nodes = opponent.nodes.copy()
+
+            matches.append((genome1_copy_1, opponent_copy_1, config))
+            matches.append((opponent_copy_2, genome1_copy_2, config))
+        # Use multiprocessing to run matches in parallel
+    num_processes = min(mp.cpu_count(), len(matches))  # Don't use more processes than matches
+    
+    print(f"Running {len(matches)} matches across {num_processes} processes...")
+    #print(f"Each genome pair plays 2 matches (once in each position)")
+    
+    # Use tqdm progress bar to track match progress
+    start_time = time.time()
+    
+    with mp.Pool(processes=num_processes) as pool:
+        # Use tqdm to track progress
+        results = []
+        with tqdm(total=len(matches), desc="Training Matches", unit="matches") as pbar:
+            for result in pool.imap(play_match, matches):
+                results.append(result)
+                pbar.update(1)
+    
+    # Calculate timing
+    end_time = time.time()
+    total_time = end_time - start_time
+    num_results = len(results)
+    # Aggregate average fitness results back to original genomes
+    for genome1_id, genome2_id, fitness1, fitness2 in results:
+        genome_dict[genome1_id].fitness += fitness1 / num_results
+        genome_dict[genome2_id].fitness += fitness2 / num_results
     
     # Calculate statistics
     avg_fitness = sum(g.fitness for _, g in genomes) / len(genomes)
@@ -337,16 +617,16 @@ class ProgressReporter(neat.reporting.BaseReporter):
         if generation > 0:
             avg_time_per_gen = elapsed / generation
             remaining_time = avg_time_per_gen * (self.max_generations - generation)
-            print(f"Generation {generation}/{self.max_generations} - "
+            print(f"Generation {generation + 1}/{self.max_generations} - "
                   f"Time elapsed: {elapsed:.1f}s, Estimated remaining: {remaining_time:.1f}s")
         else:
-            print(f"Generation {generation}/{self.max_generations} - Starting training...")
+            print(f"Generation {generation + 1}/{self.max_generations} - Starting training...")
     
     def post_evaluate(self, config, population, species, best_genome):
         generation = self.generation_count
         if population:
             avg_fitness = sum(g.fitness for g in population.values()) / len(population)
-            print(f"Generation {generation} completed - Best fitness: {best_genome.fitness:.2f}, "
+            print(f"Generation {generation + 1} completed - Best fitness: {best_genome.fitness:.2f}, "
                   f"Average fitness: {avg_fitness:.2f}")
 
 
@@ -357,8 +637,8 @@ def run_neat(config):
     max_generations = 50
     
     # Create population
-    p = neat.Checkpointer.restore_checkpoint('neat-checkpoint-6')
-    #p = neat.Population(config)
+    #p = neat.Checkpointer.restore_checkpoint('neat-checkpoint-6')
+    p = neat.Population(config)
     
     # Add reporters
     p.add_reporter(neat.StdOutReporter(True))
@@ -369,9 +649,11 @@ def run_neat(config):
     
     # Run evolution with parallel evaluation
     print(f"Starting NEAT training with {max_generations} generations...")
-    print(f"Using {min(mp.cpu_count(), 8)} CPU cores for parallel processing\n")
+    print(f"Using {mp.cpu_count()} CPU cores for parallel processing\n")
     
-    winner = p.run(eval_genomes_parallel, max_generations)
+    #winner = p.run(eval_genomes_parallel, max_generations)
+    winner = p.run(eval_genomes_swiss, max_generations)
+    
     
     # Save the best genome
     with open("best.pickle", "wb") as f:

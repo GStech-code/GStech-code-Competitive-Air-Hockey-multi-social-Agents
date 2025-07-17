@@ -61,7 +61,7 @@ class Game:
         self.game_states = []
         #self.player1_actions = []
         #self.player2_actions = []
-        self.max_score = 99
+        self.max_score = 5
         
         # Initialize game objects
         self.setup_game_objects()
@@ -164,36 +164,6 @@ class Game:
 
         return self.get_game_state()
 
-    
-    def neat_requests(self, neat_output, side):
-        """Apply actions from NEAT neural networks to the paddles
-        
-        Args:
-            neat_output: List of 4 values [left, right, up, down] for a paddle (0-1)
-            side: 'left' or 'right' to determine which paddle's controls to mock
-        """
-        # Convert neural network outputs to key states for paddle update
-        # Assuming your neural network outputs values between 0 and 1
-        
-        # Create a mock keys dictionary for the paddles
-        if side == 'left':
-            mock_keys = {
-                # Blue paddle (WASD)
-                pygame.K_a: neat_output[0] > 0.5,   # left
-                pygame.K_d: neat_output[1] > 0.5,   # right
-                pygame.K_w: neat_output[2] > 0.5,   # up
-                pygame.K_s: neat_output[3] > 0.5,   # down
-            }
-        else:
-            # Red paddle (Arrow keys)
-            mock_keys = {
-            pygame.K_LEFT: neat_output[0] > 0.5,   # left
-            pygame.K_RIGHT: neat_output[1] > 0.5,  # right
-            pygame.K_UP: neat_output[2] > 0.5,     # up
-            pygame.K_DOWN: neat_output[3] > 0.5,   # down
-            }
-        return mock_keys
-
 
     def toggle_pause(self):
         """Toggle pause state"""
@@ -257,7 +227,6 @@ class Game:
         
         # Draw "Press P to Resume" using simple shapes
         text_color = self.white
-        block_size = 4
         
         # This is a simplified version - you could expand this for full text
         self.draw_simple_instruction_line(center_x - 80, center_y, text_color)
@@ -448,58 +417,47 @@ class Game:
         draw_two_digit_score(self, self.score1, 25, 60, self.blue)
         draw_two_digit_score(self, self.score2, self.screen_width - 70, 60, self.red)
 
+
     def get_game_state(self):
         """Get current game state for neural network (normelized)"""
         game_state = {
+            # Normalize paddle position to [-1, 1] for x, [0, 1] for y
             'blue_paddle_actual_speed': self.paddle1.actual_speed / abs(self.paddle1.max_velocity),
-            'blue_paddle_x': self.paddle1.center_x / (self.screen_width / 2),
+            'blue_paddle_x': (self.paddle1.center_x - self.screen_width/4) / (self.screen_width/4),
             'blue_paddle_y': self.paddle1.center_y / self.screen_height,
-            'red_paddle_x': (self.paddle2.center_x - self.screen_width / 2) / (self.screen_width / 2),
+            'blue_paddle_times_not_moving': self.paddle1.times_not_moving / ((pygame.time.get_ticks() / 1000.0) - self.total_pause_time),
+            'red_paddle_x': (self.paddle2.center_x - 3*self.screen_width/4) / (self.screen_width/4),
             'red_paddle_y': self.paddle2.center_y / self.screen_height,
+            'red_paddle_times_not_moving': self.paddle2.times_not_moving / ((pygame.time.get_ticks() / 1000.0) - self.total_pause_time),
             'red_paddle_actual_speed': self.paddle2.actual_speed / abs(self.paddle2.max_velocity),
             'disc_x': self.disc.center_x / self.screen_width,
             'disc_y': self.disc.center_y / self.screen_height,
             'disc_velocity_x': self.disc.x_vel / self.disc.max_speed,
             'disc_velocity_y': self.disc.y_vel / self.disc.max_speed,
-            'blue_paddle_x_raw': self.paddle1.center_x,
-            'blue_paddle_y_raw': self.paddle1.center_y,
-            'red_paddle_x_raw': self.paddle2.center_x,
-            'red_paddle_y_raw': self.paddle2.center_y,
-            'disc_x_raw': self.disc.center_x,
-            'disc_y_raw': self.disc.center_y,
-            'disc_velocity_x_raw': self.disc.x_vel,
-            'disc_velocity_y_raw': self.disc.y_vel,
+        #    'blue_paddle_x_raw': self.paddle1.center_x,
+        #    'blue_paddle_y_raw': self.paddle1.center_y,
+        #    'red_paddle_x_raw': self.paddle2.center_x,
+        #    'red_paddle_y_raw': self.paddle2.center_y,
+        #    'disc_x_raw': self.disc.center_x,
+        #    'disc_y_raw': self.disc.center_y,
+        #    'disc_velocity_x_raw': self.disc.x_vel,
+        #    'disc_velocity_y_raw': self.disc.y_vel,
             'blue_paddle_in_own_goal': self.paddle1.is_in_goal_area(self.screen_width, self.screen_height),
             'red_paddle_in_own_goal': self.paddle2.is_in_goal_area(self.screen_width, self.screen_height),
             'blue_paddle_num_in_goal': self.paddle1.num_in_goal,
             'red_paddle_num_in_goal': self.paddle2.num_in_goal,
             'score1': self.score1,
             'score2': self.score2,
-            'serve_direction': self.serve_direction,
+        #    'serve_direction': self.serve_direction,
             'blue_paddle_to_disc_distance': math.sqrt((self.paddle1.center_x - self.disc.center_x)**2 + (self.paddle1.center_y - self.disc.center_y)**2),
             'red_paddle_to_disc_distance': math.sqrt((self.paddle2.center_x - self.disc.center_x)**2 + (self.paddle2.center_y - self.disc.center_y)**2),
             'game_time': (pygame.time.get_ticks() / 1000.0) - self.total_pause_time,
             'num_blue_hits': self.num_blue_hits,
             'num_red_hits': self.num_red_hits,
-            'paused': self.paused
+        #    'paused': self.paused
         }
         return game_state
-
-    def get_neural_network_input_vector(self):
-        """Get input vector for neural network"""
-        state = self.get_game_state()
-        return [
-            state['score1'], # [0]
-            state['score2'], # [1]
-            state['blue_paddle_x'], # [2]
-            state['blue_paddle_y'], # [3]
-            state['red_paddle_x'], # [4]
-            state['red_paddle_y'], # [5]
-            state['disc_x'], # [6]
-            state['disc_y'], # [7]
-            state['disc_velocity_x'], # [8]
-            state['disc_velocity_y'], # [9]
-        ]
+    
 
     def reset_puck(self):
         """Reset puck after scoring"""
@@ -519,8 +477,6 @@ class Game:
         self.score2 = 0
         self.serve_direction = 1
         self.game_states = []
-        #self.player1_actions = []
-        #self.player2_actions = []
         self.paused = False
         self.total_pause_time = 0
         self.num_blue_hits = 0
@@ -607,32 +563,6 @@ class Game:
                 if not self.paused:
                     # Collect training data
                     current_state = self.get_game_state()
-                    current_input_vector = self.get_neural_network_input_vector()
-                    # Print game state periodically
-                    #if frame_count % 60 == 0:
-                        #print("Current Game State:")
-                        #print(f"Blue Paddle: ({current_state['blue_paddle_x_raw']:.1f}, {current_state['blue_paddle_y_raw']:.1f})")
-                        #print(f"Red Paddle: ({current_state['red_paddle_x_raw']:.1f}, {current_state['red_paddle_y_raw']:.1f})")
-                        #print(f"Disc: ({current_state['disc_x_raw']:.1f}, {current_state['disc_y_raw']:.1f})")
-                        #print(f"Disc Velocity: ({current_state['disc_velocity_x_raw']:.1f}, {current_state['disc_velocity_y_raw']:.1f})")
-                        #print(f"  Blue paddle in own goal: {current_state['blue_paddle_in_own_goal']}")
-                        #print(f"  Red paddle in own goal: {current_state['red_paddle_in_own_goal']}")
-                        #print(f"Score: {self.score1} - {self.score2}")
-                        #print(f"Game Time: {current_state['game_time']:.1f}s")
-                        #print("current_input_vector (is normalized): ['score1': " + str(current_input_vector[0]) + ",")
-                        #print("'score2': " + str(current_input_vector[1]) + ",")
-                        #print("'blue_paddle_x': " + str(current_input_vector[2]) + ",")
-                        #print("'blue_paddle_y': " + str(current_input_vector[3]) + ",")
-                        #print("'red_paddle_x': " + str(current_input_vector[4]) + ",")
-                        #print("'red_paddle_y': " + str(current_input_vector[5]) + ",")
-                        #print("'disc_x': " + str(current_input_vector[6]) + ",")
-                        #print("'disc_y': " + str(current_input_vector[7]) + ",")
-                        #print("'disc_velocity_x': " + str(current_input_vector[8]) + ",")
-                        #print("'disc_velocity_y': " + str(current_input_vector[9])+ "\n]")
-                        #print("-" * 50)
-                    
-                    # Store training data
-                    #self.game_states.append(current_input_vector)
                     
                     # Update game state
                     self.update_game_state(keys)

@@ -1,23 +1,31 @@
 [NEAT]
 fitness_criterion     = max
-fitness_threshold     = 800
-pop_size              = 50
+# Lowered fitness_threshold from 100
+fitness_threshold     = 50.0
+# Increased pop_size from 50 to 150
+pop_size              = 150
 reset_on_extinction   = False
 
 [DefaultStagnation]
 species_fitness_func = max
-max_stagnation       = 20
-species_elitism      = 2
+# max_stagnation = 20 -> 25
+max_stagnation       = 15
+# Retain top 2(->3) genomes per species
+species_elitism      = 3
 
 [DefaultReproduction]
-elitism            = 2
-survival_threshold = 0.2
+# Increased elitism from 2 to 5 (top 5 genomes carry over)
+elitism            = 3
+# 30% survive to next generation
+survival_threshold = 0.3
 
 [DefaultGenome]
+# Replaced relu with sigmoid activation for smoother movement
 # node activation options
-activation_default      = relu
-activation_mutate_rate  = 1.0
-activation_options      = relu
+activation_default      = sigmoid
+# Reduced activation_mutate_rate from 1.0 to 0.5
+activation_mutate_rate  = 0.5
+activation_options      = tanh sigmoid relu
 
 # node aggregation options
 aggregation_default     = sum
@@ -25,21 +33,22 @@ aggregation_mutate_rate = 0.0
 aggregation_options     = sum
 
 # node bias options
-bias_init_mean          = 3.0
-bias_init_stdev         = 1.0
+bias_init_mean          = 0.0
+bias_init_stdev         = 0.5
 bias_max_value          = 30.0
 bias_min_value          = -30.0
-bias_mutate_power       = 0.5
-bias_mutate_rate        = 0.7
-bias_replace_rate       = 0.1
+bias_mutate_power       = 0.3
+bias_mutate_rate        = 0.8
+bias_replace_rate       = 0.3
 
 # genome compatibility options
 compatibility_disjoint_coefficient = 1.0
 compatibility_weight_coefficient   = 0.5
 
 # connection add/remove rates
-conn_add_prob           = 0.5
-conn_delete_prob        = 0.5
+conn_add_prob           = 0.3
+# Reduced conn_delete_prob from 0.5 to 0.3
+conn_delete_prob        = 0.3
 
 # connection enable options
 enabled_default         = True
@@ -49,31 +58,44 @@ feed_forward            = True
 initial_connection      = full_direct
 
 # node add/remove rates
-node_add_prob           = 0.2
+# Reduced node_add_prob from 0.2 to 0.1
+node_add_prob           =  0.2
+# Reduced node_delete_prob from 0.2 to 0.1
 node_delete_prob        = 0.2
 
 # network parameters
-num_hidden              = 2
-num_inputs              = 10
-num_outputs             = 4
+# Increased num_hidden from 2 to 8
+num_hidden              = 4
+num_inputs              = 12
+# Decreased num_outputs from 4 to 2
+num_outputs             = 2
 
 # node response options
 response_init_mean      = 1.0
-response_init_stdev     = 0.0
+response_init_stdev     = 0.5
+# response_max_value = 30 -> 10
 response_max_value      = 30.0
+# response_min_value = -30 -> -10
 response_min_value      = -30.0
-response_mutate_power   = 0.0
-response_mutate_rate    = 0.0
-response_replace_rate   = 0.0
+# Increased response_mutate_power from 0.0 to 0.8
+response_mutate_power   = 0.8
+# Increased response_mutate_rate from 0.0 to 0.3
+response_mutate_rate    = 0.3
+# Increased response_replace_rate from 0.0 to 0.1
+response_replace_rate   = 0.1
 
 # connection weight options
 weight_init_mean        = 0.0
-weight_init_stdev       = 1.0
+# Reduced weight_init_stdev from 1.0 to 0.5
+weight_init_stdev       = 0.5
 weight_max_value        = 30
 weight_min_value        = -30
+# Reduced weight_mutate_power from 0.5 to 0.3
 weight_mutate_power     = 0.5
-weight_mutate_rate      = 0.8
-weight_replace_rate     = 0.1
+# Increased weight_mutate_rate from 0.8 to 0.9
+weight_mutate_rate      = 0.9
+weight_replace_rate     = 0.15
 
 [DefaultSpeciesSet]
-compatibility_threshold = 3.0
+# Decreased compatibility_threshold from 3 to 2 (tighter species clustering)
+compatibility_threshold = 3
