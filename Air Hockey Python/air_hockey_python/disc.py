@@ -104,7 +104,7 @@ class Disc:
         mass_ratio = (2 * paddle_mass) / (disc_mass + paddle_mass)
         
         # Restitution coefficient (energy loss)
-        restitution = 0.85  # Slightly less than perfectly elastic for realistic feel
+        restitution = 0.75  # Slightly less than perfectly elastic for realistic feel
         impulse = -(1 + restitution) * dvn * mass_ratio
         
         # Apply impulse to disc velocity
