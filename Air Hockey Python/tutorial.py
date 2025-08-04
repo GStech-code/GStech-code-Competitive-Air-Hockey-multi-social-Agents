@@ -13,7 +13,7 @@ import os
 
 class HockeyGame:
     def __init__(self):
-        self.game = Game(render= False)
+        self.game = Game(render= True)
         self.game.max_score = 2
         self.paddle1 = self.game.paddle1
         self.paddle2 = self.game.paddle2
@@ -186,55 +186,143 @@ class HockeyGame:
         pygame.quit()
 
     # input normalization and neural network processing
+    #def get_normalized_inputs_for_paddle(self, paddle_side):
+    #    """Get properly normalized inputs for a paddle"""
+    #    if paddle_side == 'left':
+    #        # Blue paddle (left side)
+    #        paddle = self.paddle1
+    #        opponent = self.paddle2
+    #        # Normalize paddle position to [-1, 1] for x, [0, 1] for y
+    #        paddle_x = (paddle.center_x - self.screen_width/4) / (self.screen_width/4)
+    #        paddle_y = paddle.center_y / self.screen_height
+    #        # Opponent position relative to paddle
+    #        opponent_x = (opponent.center_x - paddle.center_x) / (self.screen_width/2)
+    #        opponent_y = (opponent.center_y - paddle.center_y) / self.screen_height
+    #        # Disc position relative to paddle
+    #        disc_x = (self.disc.center_x - paddle.center_x) / (self.screen_width/2)
+    #        disc_y = (self.disc.center_y - paddle.center_y) / self.screen_height
+    #    else:
+    #        # Red paddle (right side)
+    #        paddle = self.paddle2
+    #        opponent = self.paddle1
+    #        # Normalize paddle position to [-1, 1] for x, [0, 1] for y
+    #        paddle_x = (paddle.center_x - 3*self.screen_width/4) / (self.screen_width/4)
+    #        paddle_y = paddle.center_y / self.screen_height
+    #        # Opponent position relative to paddle
+    #        opponent_x = (opponent.center_x - paddle.center_x) / (self.screen_width/2)
+    #        opponent_y = (opponent.center_y - paddle.center_y) / self.screen_height
+    #        # Disc position relative to paddle
+    #        disc_x = (self.disc.center_x - paddle.center_x) / (self.screen_width/2)
+    #        disc_y = (self.disc.center_y - paddle.center_y) / self.screen_height
+    #    
+    #    return [
+    #        paddle_x,                           # Paddle X position (normalized)
+    #        paddle_y,                           # Paddle Y position (normalized)
+    #        paddle.actual_speed / paddle.max_velocity,  # Paddle speed (normalized)
+    #        opponent_x,                         # Opponent X relative to paddle
+    #        opponent_y,                         # Opponent Y relative to paddle
+    #        disc_x,                             # Disc X relative to paddle
+    #        disc_y,                             # Disc Y relative to paddle
+    #        self.disc.x_vel / self.disc.max_speed,      # Disc X velocity (normalized)
+    #        self.disc.y_vel / self.disc.max_speed,      # Disc Y velocity (normalized)
+    #        # Additional strategic inputs:
+    #        self.disc.center_x / self.screen_width,     # Disc absolute X position
+    #        # Distance to disc (normalized)
+    #        min(1.0, math.sqrt((paddle.center_x - self.disc.center_x)**2 + 
+    #                        (paddle.center_y - self.disc.center_y)**2) / 200),
+    #        # Is disc moving toward paddle? (dot product of disc velocity and paddle-to-disc vector)
+    #        self.calculate_disc_approach_factor(paddle)
+    #    ]
     def get_normalized_inputs_for_paddle(self, paddle_side):
-        """Get properly normalized inputs for a paddle"""
+        """Get properly normalized inputs for a paddle with all positions relative to the paddle"""
         if paddle_side == 'left':
             # Blue paddle (left side)
             paddle = self.paddle1
             opponent = self.paddle2
-            # Normalize paddle position to [-1, 1] for x, [0, 1] for y
-            paddle_x = (paddle.center_x - self.screen_width/4) / (self.screen_width/4)
-            paddle_y = paddle.center_y / self.screen_height
-            # Opponent position relative to paddle
-            opponent_x = (opponent.center_x - paddle.center_x) / (self.screen_width/2)
-            opponent_y = (opponent.center_y - paddle.center_y) / self.screen_height
-            # Disc position relative to paddle
-            disc_x = (self.disc.center_x - paddle.center_x) / (self.screen_width/2)
-            disc_y = (self.disc.center_y - paddle.center_y) / self.screen_height
+            # Define paddle's "home" position (center of left half)
+            home_x = self.screen_width / 4
+            home_y = self.screen_height / 2
+            
         else:
             # Red paddle (right side)
             paddle = self.paddle2
             opponent = self.paddle1
-            # Normalize paddle position to [-1, 1] for x, [0, 1] for y
-            paddle_x = (paddle.center_x - 3*self.screen_width/4) / (self.screen_width/4)
-            paddle_y = paddle.center_y / self.screen_height
-            # Opponent position relative to paddle
-            opponent_x = (opponent.center_x - paddle.center_x) / (self.screen_width/2)
-            opponent_y = (opponent.center_y - paddle.center_y) / self.screen_height
-            # Disc position relative to paddle
-            disc_x = (self.disc.center_x - paddle.center_x) / (self.screen_width/2)
-            disc_y = (self.disc.center_y - paddle.center_y) / self.screen_height
+            # Define paddle's "home" position (center of right half)
+            home_x = 3 * self.screen_width / 4
+            home_y = self.screen_height / 2
+        
+        # All positions are now relative to the paddle's current position
+        # Paddle position relative to its "home" position
+        paddle_rel_x = (paddle.center_x - home_x) / (self.screen_width / 4)  # Normalized to [-1, 1]
+        paddle_rel_y = (paddle.center_y - home_y) / (self.screen_height / 2)  # Normalized to [-1, 1]
+        
+        # Opponent position relative to paddle
+        opponent_rel_x = (opponent.center_x - paddle.center_x) / (self.screen_width / 2)
+        opponent_rel_y = (opponent.center_y - paddle.center_y) / (self.screen_height / 2)
+        
+        # Disc position relative to paddle
+        disc_rel_x = (self.disc.center_x - paddle.center_x) / (self.screen_width / 2)
+        disc_rel_y = (self.disc.center_y - paddle.center_y) / (self.screen_height / 2)
+        
+        # Flip x-axis for right paddle so positive x always means "toward opponent goal"
+        if paddle_side == 'right':
+            paddle_rel_x *= -1
+            opponent_rel_x *= -1
+            disc_rel_x *= -1
+        
+        # Distance to disc (relative, normalized)
+        disc_distance = math.sqrt((paddle.center_x - self.disc.center_x)**2 + 
+                                (paddle.center_y - self.disc.center_y)**2)
+        disc_distance_normalized = min(1.0, disc_distance / 200)
+        
+        # Distance to opponent (relative, normalized)
+        opponent_distance = math.sqrt((paddle.center_x - opponent.center_x)**2 + 
+                                    (paddle.center_y - opponent.center_y)**2)
+        opponent_distance_normalized = min(1.0, opponent_distance / 200)
+        
+        # Opponent's goal position relative to paddle
+        if paddle_side == 'left':
+            # Blue paddle attacks right goal
+            opponent_goal_x = self.screen_width
+            opponent_goal_y = self.screen_height / 2
+        else:
+            # Red paddle attacks left goal
+            opponent_goal_x = 0
+            opponent_goal_y = self.screen_height / 2
+        
+        # Opponent goal position relative to paddle
+        opponent_goal_rel_x = (opponent_goal_x - paddle.center_x) / (self.screen_width / 2)
+        opponent_goal_rel_y = (opponent_goal_y - paddle.center_y) / (self.screen_height / 2)
+        
+        # Apply x-axis flip for right paddle
+        if paddle_side == 'right':
+            opponent_goal_rel_x *= -1
+        
+        # Distance to opponent goal (relative, normalized)
+        goal_distance = math.sqrt((paddle.center_x - opponent_goal_x)**2 + 
+                                (paddle.center_y - opponent_goal_y)**2)
+        goal_distance_normalized = min(1.0, goal_distance / 300)  # Slightly larger normalization for goal distance
         
         return [
-            paddle_x,                           # Paddle X position (normalized)
-            paddle_y,                           # Paddle Y position (normalized)
-            paddle.actual_speed / paddle.max_velocity,  # Paddle speed (normalized)
-            opponent_x,                         # Opponent X relative to paddle
-            opponent_y,                         # Opponent Y relative to paddle
-            disc_x,                             # Disc X relative to paddle
-            disc_y,                             # Disc Y relative to paddle
-            self.disc.x_vel / self.disc.max_speed,      # Disc X velocity (normalized)
-            self.disc.y_vel / self.disc.max_speed,      # Disc Y velocity (normalized)
-            # Additional strategic inputs:
-            self.disc.center_x / self.screen_width,     # Disc absolute X position
-            # Distance to disc (normalized)
-            min(1.0, math.sqrt((paddle.center_x - self.disc.center_x)**2 + 
-                            (paddle.center_y - self.disc.center_y)**2) / 200),
-            # Is disc moving toward paddle? (dot product of disc velocity and paddle-to-disc vector)
-            self.calculate_disc_approach_factor(paddle)
+            paddle_rel_x,                                    # Paddle X relative to home position (flipped for right)
+            paddle_rel_y,                                    # Paddle Y relative to home position
+            paddle.actual_speed / paddle.max_velocity,       # Paddle speed (normalized)
+            opponent_rel_x,                                  # Opponent X relative to paddle (flipped for right)
+            opponent_rel_y,                                  # Opponent Y relative to paddle
+            disc_rel_x,                                      # Disc X relative to paddle (flipped for right)
+            disc_rel_y,                                      # Disc Y relative to paddle
+            self.disc.x_vel / self.disc.max_speed if paddle_side == 'left' else -self.disc.x_vel / self.disc.max_speed,  # Disc X velocity (flipped for right)
+            self.disc.y_vel / self.disc.max_speed,           # Disc Y velocity (normalized)
+            disc_distance_normalized,                        # Distance to disc (normalized)
+            opponent_distance_normalized,                    # Distance to opponent (normalized)
+            opponent_goal_rel_x,                             # Opponent goal X relative to paddle (flipped for right)
+            opponent_goal_rel_y,                             # Opponent goal Y relative to paddle
+            goal_distance_normalized,                        # Distance to opponent goal (normalized)
+            self.calculate_disc_approach_factor(paddle, paddle_side)      # Disc approach factor
         ]
 
-    def calculate_disc_approach_factor(self, paddle):
+
+    def calculate_disc_approach_factor(self, paddle, paddle_side):
         """Calculate if disc is approaching the paddle"""
         # Vector from disc to paddle
         dx = paddle.center_x - self.disc.center_x
@@ -245,18 +333,27 @@ class HockeyGame:
             return 0
         dx /= dist
         dy /= dist
+
+        # Get disc velocity (flip x-velocity for right paddle for consistency)
+        disc_x_vel = self.disc.x_vel if paddle_side == 'left' else -self.disc.x_vel
+        disc_y_vel = self.disc.y_vel
         # Dot product with disc velocity (normalized)
-        vel_mag = math.sqrt(self.disc.x_vel**2 + self.disc.y_vel**2)
+        vel_mag = math.sqrt(disc_x_vel**2 + disc_y_vel**2)
         if vel_mag == 0:
             return 0
+        # Apply coordinate flip to dx for right paddle as well
+        if paddle_side == 'right':
+            dx *= -1
+        
         approach_factor = (dx * self.disc.x_vel + dy * self.disc.y_vel) / vel_mag
         return max(-1, min(1, approach_factor))
+
 
     def process_neat_output(self, neat_output, paddle_side):
         """Apply actions from NEAT neural networks to the paddles
         
         Args:
-            neat_output: List of 4 values [left, right, up, down] for a paddle (0-1)
+            neat_output: List of 4 values ["toward own goal", "toward opponent's goal", up, down] for a paddle (0-1)
             side: 'left' or 'right' to determine which paddle's controls to mock
         """
         # Convert 2-output neural network to movement commands for paddle update
@@ -273,16 +370,18 @@ class HockeyGame:
         if paddle_side == 'left':
             # Blue paddle (WASD)
             movement = {
-                pygame.K_a: x_movement < -deadzone,    # left
-                pygame.K_d: x_movement > deadzone,     # right
+                pygame.K_a: x_movement < -deadzone,    # toward own goal (left)
+                pygame.K_d: x_movement > deadzone,     # toward opponent's goal (right)
                 pygame.K_w: y_movement < -deadzone,    # up
                 pygame.K_s: y_movement > deadzone,     # down
             }
         else:
             # Red paddle (Arrow keys)
             movement = {
-                pygame.K_LEFT: x_movement < -deadzone,   # left
-                pygame.K_RIGHT: x_movement > deadzone,  # right
+                #pygame.K_RIGHT: x_movement > deadzone,  # toward own goal (right)
+                pygame.K_RIGHT: x_movement < -deadzone, # toward own goal (right)
+                #pygame.K_LEFT: x_movement < -deadzone,  # toward opponent's goal (left)
+                pygame.K_LEFT: x_movement > deadzone,  # toward opponent's goal (left)
                 pygame.K_UP: y_movement < -deadzone,    # up
                 pygame.K_DOWN: y_movement > deadzone,   # down
             }
@@ -341,8 +440,8 @@ class HockeyGame:
         game_time = max(1, game_info['game_time'])
 
         # Calculate movement ratio (lower is worse)
-        blue_movement_ratio = 1.0 - (game_info['blue_paddle_times_not_moving'] / game_time)
-        red_movement_ratio = 1.0 - (game_info['red_paddle_times_not_moving'] / game_time)
+        blue_movement_ratio = 1.0 - (game_info['blue_paddle_ratio_times_not_moving'])
+        red_movement_ratio = 1.0 - (game_info['red_paddle_ratio_times_not_moving'])
         blue_fitness += max(0, blue_movement_ratio) * 2
         red_fitness += max(0, red_movement_ratio) * 2
 
@@ -351,18 +450,18 @@ class HockeyGame:
         red_fitness -= (1.0 - red_movement_ratio) * 10.0
 
         # 6. GOAL AREA PENALTIES (prevent camping in goal)
-        blue_fitness -= 0.1 * game_info['blue_paddle_num_in_goal'] / game_info['game_time']
-        red_fitness -= 0.1 * game_info['red_paddle_num_in_goal'] / game_info['game_time']
+        blue_fitness -= 0.2 * game_info['blue_paddle_num_in_goal'] / game_info['game_time']
+        red_fitness -= 0.2 * game_info['red_paddle_num_in_goal'] / game_info['game_time']
         
         # Penalty for staying too close to corners and walls
         if self.paddle1.touching_wall:
-            blue_fitness -= 0.5
+            blue_fitness -= 0.75
         if self.paddle2.touching_wall:
-            red_fitness -= 0.5
+            red_fitness -= 0.75
         if blue_in_corner:
-            blue_fitness -= 0.2
+            blue_fitness -= 0.3
         if red_in_corner:
-            red_fitness -= 0.2
+            red_fitness -= 0.3
         
         # 7. STRATEGIC BONUSES
         # Bonus for winning quickly
@@ -522,7 +621,7 @@ def eval_genomes_parallel(genomes, config):
     print(f"Average fitness: {avg_fitness:.2f}")
     print(f"Best fitness: {best_fitness:.2f}")
 
-def eval_genomes_swiss(genomes, config, matches_per_genome= 5):
+def eval_genomes_swiss(genomes, config, matches_per_genome= 6):
     """
     Swiss tournament: each genome plays against a fixed number of opponents
     """
@@ -617,16 +716,16 @@ class ProgressReporter(neat.reporting.BaseReporter):
         if generation > 0:
             avg_time_per_gen = elapsed / generation
             remaining_time = avg_time_per_gen * (self.max_generations - generation)
-            print(f"Generation {generation + 1}/{self.max_generations} - "
+            print(f"Generation {generation}/{self.max_generations} - "
                   f"Time elapsed: {elapsed:.1f}s, Estimated remaining: {remaining_time:.1f}s")
         else:
-            print(f"Generation {generation + 1}/{self.max_generations} - Starting training...")
+            print(f"Generation {generation}/{self.max_generations} - Starting training...")
     
     def post_evaluate(self, config, population, species, best_genome):
         generation = self.generation_count
         if population:
             avg_fitness = sum(g.fitness for g in population.values()) / len(population)
-            print(f"Generation {generation + 1} completed - Best fitness: {best_genome.fitness:.2f}, "
+            print(f"Generation {generation} completed - Best fitness: {best_genome.fitness:.2f}, "
                   f"Average fitness: {avg_fitness:.2f}")
 
 
@@ -637,8 +736,8 @@ def run_neat(config):
     max_generations = 50
     
     # Create population
-    #p = neat.Checkpointer.restore_checkpoint('neat-checkpoint-6')
-    p = neat.Population(config)
+    p = neat.Checkpointer.restore_checkpoint('neat-checkpoint-49')
+    #p = neat.Population(config)
     
     # Add reporters
     p.add_reporter(neat.StdOutReporter(True))
@@ -683,5 +782,6 @@ if __name__ == "__main__":
     config = neat.Config(neat.DefaultGenome, neat.DefaultReproduction,
                          neat.DefaultSpeciesSet, neat.DefaultStagnation,
                          config_path)
-    run_neat(config)
-    #test_ai(config)
+    
+    #run_neat(config)
+    test_ai(config)

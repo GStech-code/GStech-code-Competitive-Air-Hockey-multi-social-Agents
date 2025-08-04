@@ -142,8 +142,9 @@ class Paddle:
         # Calculate actual velocity (how much the paddle actually moved)
         self.actual_velocity_x = self.center_x - self.prev_x
         self.actual_velocity_y = self.center_y - self.prev_y
-        self.actual_speed = math.sqrt(self.actual_velocity_x**2 + self.actual_velocity_y**2)
-        self.times_not_moving += 1 if self.actual_speed <= 0.02 else 0
+        actual_speed = math.sqrt(self.actual_velocity_x**2 + self.actual_velocity_y**2)
+        self.actual_speed = actual_speed if actual_speed >= 0.05 else 0
+        self.times_not_moving += 1 if self.actual_speed <= 0.05 else 0
 
     
     def apply_boundaries(self, screen_width, screen_height):
