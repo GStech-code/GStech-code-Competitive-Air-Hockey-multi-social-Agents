@@ -1,0 +1,14 @@
+#Not final - this file will change
+# Request
+string scenario_name
+string team_a_name
+string team_b_name
+int32 num_agents_team_a
+int32 num_agents_team_b
+string rules
+---
+# Response
+bool success
+string message
+string[] team_a_agent_ids
+string[] team_b_agent_ids
