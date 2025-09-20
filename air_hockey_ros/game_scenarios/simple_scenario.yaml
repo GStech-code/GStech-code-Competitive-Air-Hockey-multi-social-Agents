@@ -1,0 +1,10 @@
+name: simple_scenario
+game_duration: 300
+table:
+  width: 800
+  height: 600
+  goal_gap: 10
+paddle:
+  step_size: 8
+puck:
+  p_radius: 1

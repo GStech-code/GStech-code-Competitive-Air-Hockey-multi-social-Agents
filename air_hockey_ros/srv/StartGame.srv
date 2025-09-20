@@ -1,4 +1,3 @@
-#Not final - this file will change
 # Request
 string scenario_name
 string team_a_name
@@ -7,8 +6,8 @@ int32 num_agents_team_a
 int32 num_agents_team_b
 string rules
 ---
-# Response
+    # Response
 bool success
 string message
-string[] team_a_agent_ids
-string[] team_b_agent_ids
+int8[] team_a_agent_ids
+int8[] team_b_agent_ids

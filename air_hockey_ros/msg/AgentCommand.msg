@@ -1,4 +1,3 @@
-# Not final, Will be edited.
-string agent_id
-string command_type
-float32[] parameters
+int8 agent_id
+int8 vx
+int8 vy
