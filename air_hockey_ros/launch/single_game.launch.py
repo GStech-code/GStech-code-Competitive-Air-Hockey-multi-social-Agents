@@ -53,8 +53,8 @@ def _build_actions(context, *args, **kwargs):
     rules_dict = _flatten_rules(scn)
     rules_json = json.dumps(rules_dict, separators=(",", ":"))
 
-    team_a = "simple_team"
-    team_b = "simple_team"
+    team_a = "simple"
+    team_b = "simple"
     num_a = 2
     num_b = 2
 
@@ -88,7 +88,7 @@ def _build_actions(context, *args, **kwargs):
             executable="game_manager_node.py",
             name="game_manager",
             output="screen",
-            arguments=["mock"],   # <— ensures __init__(self, simulation_name: str) receives 'mock'
+            arguments=["mock", "use_physics::=true"],
         )
     )
 

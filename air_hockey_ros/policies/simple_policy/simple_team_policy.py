@@ -3,7 +3,7 @@ from air_hockey_ros import TeamPolicy, register_policy, AgentPolicy
 from .simple_regional_agent_policy import SimpleRegionalAgentPolicy
 from .simple_crosser_agent_policy import SimpleCrosserAgentPolicy
 
-@register_policy('simple_team')
+@register_policy('simple')
 class SimpleTeamPolicy(TeamPolicy):
     def __init__(self, **params):
         super().__init__(**params)

@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-import logging
 from typing import Dict, List, Literal, Tuple
 import subprocess
 import pickle
@@ -23,6 +22,7 @@ from air_hockey_ros.msg import AgentCommand, WorldState, GameResult
 import importlib
 import pkgutil
 
+
 def _import_all_modules(package_name: str, suffix: str):
     """
     Import only modules under `package_name` whose filename (module base) ends with `suffix`.
@@ -37,8 +37,13 @@ def _import_all_modules(package_name: str, suffix: str):
             continue
         importlib.import_module(modname)
 
-logging.basicConfig(filename='game_manager.log', level=logging.INFO)
 
+logging.basicConfig(filename='game_manager.log', level=logging.INFO)
+logging.basicConfig(
+    filename='air_hockey.log',
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+)
 TERMINATE_SLEEP_TIME = 0.05
 TERMINATE_TIMEOUT = 3.0
 GAME_TICK_HZ = 60
@@ -46,6 +51,7 @@ QUEUE_SIZE = 100
 DEFAULT_GAME_DURATION = 300
 IS_SYS_WIN = sys.platform.startswith("win")
 CREATE_NEW_PROCESS_GROUP_WIN_SYS = 0x00000200
+
 
 def _terminate_proc(proc, timeout=TERMINATE_TIMEOUT):
     try:
@@ -72,23 +78,28 @@ def _terminate_proc(proc, timeout=TERMINATE_TIMEOUT):
         except Exception:
             pass
 
+
 def stop_all_agents(agent_procs: List[subprocess.Popen]):
     for p in agent_procs:
         _terminate_proc(p)
     agent_procs.clear()
+
 
 def create_agent_processes(agents_args: List[List[str]]):
     if IS_SYS_WIN:
         return [subprocess.Popen(args, creationflags=CREATE_NEW_PROCESS_GROUP_WIN_SYS) for args in agents_args]
     return [subprocess.Popen(args, preexec_fn=os.setsid) for args in agents_args]
 
+
 def command_to_tuple(cmd):
     return (cmd.agent_id, cmd.vx, cmd.vy)
 
+
 class GameManagerNode(Node):
-    def __init__(self, simulation_name: str):
+    def __init__(self, simulation_name: str, **params):
         super().__init__('game_manager')
         self.rclpy_clock = rclpy.clock.Clock()
+        self.logger = logging.getLogger(f"game_manager")
 
         self.declare_parameter('tick_hz', GAME_TICK_HZ)
 
@@ -98,13 +109,12 @@ class GameManagerNode(Node):
         self.agent_team_map: Dict[int, Literal['A', 'B']] = {}
 
         try:
-            self.sim: Simulation = get_simulation(simulation_name)(use_physics=True)
+            self.sim: Simulation = get_simulation(simulation_name)(**params)
         except Exception as e:
-            logging.error("Simulation name doesn't exist")
-            logging.error(e)
+            self.logger.error("Simulation name doesn't exist")
+            self.logger.error(e)
             raise e
-        
-        logging.info(str(self.sim))
+
         self.game_active: bool = False
 
         # Publishers / Subscribers
@@ -137,11 +147,10 @@ class GameManagerNode(Node):
 
         hz = self.get_parameter('tick_hz').value
         period = 1.0 / hz
-        
+
         self.timer = self.create_timer(period, self._tick)
 
-        logging.info("GameManagerNode initialized")
-
+        self.logger.info("GameManagerNode initialized")
 
     def _agent_command_cb(self, msg: AgentCommand):
         self.agent_commands[msg.agent_id] = msg
@@ -163,9 +172,8 @@ class GameManagerNode(Node):
         rules = json.loads(request.rules)
         self.game_duration = rules.get('game_duration', DEFAULT_GAME_DURATION)
 
-
-        logging.info(f"Starting game: {scenario_name} - "
-                               + f"{team_a_name}: {num_agents_team_a} vs {team_b_name}: {num_agents_team_b}")
+        self.logger.info(f"Starting game: {scenario_name} - "
+                         + f"{team_a_name}: {num_agents_team_a} vs {team_b_name}: {num_agents_team_b}")
 
         team_a_agent = get_team_policy(team_a_name)(num_agents_team_a=num_agents_team_a,
                                                     num_agents_team_b=num_agents_team_b,
@@ -195,17 +203,17 @@ class GameManagerNode(Node):
 
         # Create agent args
         agents_args = [[
-                "ros2", "run", "air_hockey_ros", "agent_node.py",
-                "--agent_id", str(aid),
-                "--team", "a", "--log", "True",
-                "--policy_path", self.agent_policy_paths[aid]
-            ] for aid in agents_a]
+            "ros2", "run", "air_hockey_ros", "agent_node.py",
+            "--agent_id", str(aid),
+            "--team", "a", "--log", "True",
+            "--policy_path", self.agent_policy_paths[aid]
+        ] for aid in agents_a]
         agents_args.extend([[
-                "ros2", "run", "air_hockey_ros", "agent_node.py",
-                "--agent_id", str(aid),
-                "--team", "b", "--log", "True",
-                "--policy_path", self.agent_policy_paths[aid]
-            ] for aid in agents_b])
+            "ros2", "run", "air_hockey_ros", "agent_node.py",
+            "--agent_id", str(aid),
+            "--team", "b", "--log", "True",
+            "--policy_path", self.agent_policy_paths[aid]
+        ] for aid in agents_b])
 
         # Launch agents
         self.agent_procs = create_agent_processes(agents_args)
@@ -236,7 +244,7 @@ class GameManagerNode(Node):
             winner = "Team B"
         else:
             winner = "Draw"
-        logging.info(f"Ending game: Team a: {team_a_score}, Team b: {team_b_score}, Winner: {winner}")
+        self.logger.info(f"Ending game: Team a: {team_a_score}, Team b: {team_b_score}, Winner: {winner}")
         self.result_pub.publish(GameResult(team_a_score=team_a_score, team_b_score=team_b_score, winner=winner))
 
     def _tick(self):
@@ -250,24 +258,24 @@ class GameManagerNode(Node):
 
         # Get the updated state from the simulation
         world_state = self.sim.get_world_state()
-        logging.info(world_state)
-        state_a, state_b = self.transform_world_state(world_state)
+        time_stamp = self.rclpy_clock.now().to_msg()
+        self.logger.info(str(time_stamp.sec) + ':' + str(time_stamp.nanosec) + ':' + str(world_state))
+        state_a, state_b = self.transform_world_state(time_stamp, world_state)
 
         self.agent_a_update_pub.publish(state_a)
         self.agent_b_update_pub.publish(state_b)
-        
+
         if perf_counter() - self.game_start_time >= self.game_duration:
             self.end_game()
 
-    def transform_world_state(self, world_state: Dict) -> Tuple[WorldState, WorldState]:
+    def transform_world_state(self, time_stamp, world_state: Dict) -> Tuple[WorldState, WorldState]:
         """
         Transform the world state into fitting world states for both teams.
         """
-        now = self.rclpy_clock.now().to_msg()
-        state_a = WorldState(stamp=now, **world_state)
+        state_a = WorldState(stamp=time_stamp, **world_state)
         width = self.sim.width
         height = self.sim.height
-        state_b = WorldState(stamp=now,
+        state_b = WorldState(stamp=time_stamp,
                              puck_x=width - world_state['puck_x'],
                              puck_y=height - world_state['puck_y'],
                              puck_vx=-world_state['puck_vx'],
@@ -275,19 +283,39 @@ class GameManagerNode(Node):
                              agent_x=[width - x for x in world_state['agent_x']],
                              agent_y=[height - y for y in world_state['agent_y']],
                              agent_vx=[-vx for vx in world_state['agent_vx']],
-                             agent_vy=[-vy for vy in world_state['agent_vy']],)
+                             agent_vy=[-vy for vy in world_state['agent_vy']], )
         return state_a, state_b
+
 
 def main(args=None):
     rclpy.init(args=args)
-    
+
     _import_all_modules("policies", suffix="team_policy")
     _import_all_modules("simulations", suffix="simulation")
-    
-    node = GameManagerNode(simulation_name=sys.argv[1])
+
+    sim_name = sys.argv[1]
+    sim_params = {}
+
+    for arg in sys.argv[2:]:
+        if "::=" in arg and not arg.startswith("_"):
+            k, v = arg.split("::=", 1)
+            # basic type conversion
+            if v.lower() in ("true", "false"):
+                v = v.lower() == "true"
+            elif v.isdigit():
+                v = int(v)
+            else:
+                try:
+                    v = float(v)
+                except ValueError:
+                    pass  # keep as string
+            sim_params[k] = v
+
+    node = GameManagerNode(simulation_name=sim_name, **sim_params)
     rclpy.spin(node)
     node.destroy_node()
     rclpy.shutdown()
+
 
 if __name__ == '__main__':
     main()
