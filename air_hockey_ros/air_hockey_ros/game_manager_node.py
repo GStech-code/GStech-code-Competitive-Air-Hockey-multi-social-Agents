@@ -38,12 +38,6 @@ def _import_all_modules(package_name: str, suffix: str):
         importlib.import_module(modname)
 
 
-logging.basicConfig(filename='game_manager.log', level=logging.INFO)
-logging.basicConfig(
-    filename='air_hockey.log',
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(message)s",
-)
 TERMINATE_SLEEP_TIME = 0.05
 TERMINATE_TIMEOUT = 3.0
 GAME_TICK_HZ = 60
@@ -99,7 +93,14 @@ class GameManagerNode(Node):
     def __init__(self, simulation_name: str, **params):
         super().__init__('game_manager')
         self.rclpy_clock = rclpy.clock.Clock()
-        self.logger = logging.getLogger(f"game_manager")
+        self.logger = logging.getLogger('game_manager')
+        self.logger.propagate = False
+        self.logger.setLevel(logging.INFO)
+        if not self.logger.handlers:  # avoid duplicate handlers on reload
+            fh = logging.FileHandler(f"game_manager.log")
+            fmt = logging.Formatter("%(asctime)s [%(levelname)s] %(message)s")
+            fh.setFormatter(fmt)
+            self.logger.addHandler(fh)
 
         self.declare_parameter('tick_hz', GAME_TICK_HZ)
 
@@ -258,9 +259,9 @@ class GameManagerNode(Node):
 
         # Get the updated state from the simulation
         world_state = self.sim.get_world_state()
-        time_stamp = self.rclpy_clock.now().to_msg()
-        self.logger.info(str(time_stamp.sec) + ':' + str(time_stamp.nanosec) + ':' + str(world_state))
-        state_a, state_b = self.transform_world_state(time_stamp, world_state)
+
+        self.logger.info(world_state)
+        state_a, state_b = self.transform_world_state(world_state)
 
         self.agent_a_update_pub.publish(state_a)
         self.agent_b_update_pub.publish(state_b)
@@ -268,10 +269,11 @@ class GameManagerNode(Node):
         if perf_counter() - self.game_start_time >= self.game_duration:
             self.end_game()
 
-    def transform_world_state(self, time_stamp, world_state: Dict) -> Tuple[WorldState, WorldState]:
+    def transform_world_state(self, world_state: Dict) -> Tuple[WorldState, WorldState]:
         """
         Transform the world state into fitting world states for both teams.
         """
+        time_stamp = self.rclpy_clock.now().to_msg()
         state_a = WorldState(stamp=time_stamp, **world_state)
         width = self.sim.width
         height = self.sim.height
