@@ -19,9 +19,10 @@ def _flatten_rules(scn: dict) -> dict:
     if 'height' in table:    rules['height'] = int(table['height'])
     if 'goal_gap' in table:  rules['goal_gap'] = int(table['goal_gap'])
     paddle = scn.get('paddle', {})
-    if 'step_size' in paddle: rules['step_size'] = int(paddle['step_size'])
+    if 'unit_speed_px' in paddle: rules['unit_speed_px'] = int(paddle['unit_speed_px'])
+    if 'paddle_radius' in paddle: rules['paddle_radius'] = int(paddle['paddle_radius'])
     puck = scn.get('puck', {})
-    if 'p_radius' in puck:   rules['p_radius'] = int(puck['p_radius'])
+    if 'puck_radius' in puck:   rules['puck_radius'] = int(puck['puck_radius'])
     return rules
 
 def _resolve_scenario_path(context, scenario_file_lc):
@@ -88,7 +89,7 @@ def _build_actions(context, *args, **kwargs):
             executable="game_manager_node.py",
             name="game_manager",
             output="screen",
-            arguments=["mock", "use_physics::=true"],
+            arguments=["base", ], #"use_physics::=true"
         )
     )
 

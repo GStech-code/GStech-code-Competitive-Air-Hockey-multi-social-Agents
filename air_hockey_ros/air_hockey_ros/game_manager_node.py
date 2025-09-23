@@ -5,12 +5,14 @@ import pickle
 import tempfile, shutil
 import os
 import sys
+import threading
 import signal
 import time
 import logging
 import json
 import rclpy
 from rclpy.node import Node
+from rclpy.qos import QoSProfile, HistoryPolicy, ReliabilityPolicy, DurabilityPolicy
 from builtin_interfaces.msg import Time
 from time import perf_counter
 from air_hockey_ros.simulation import Simulation
@@ -21,7 +23,6 @@ from air_hockey_ros.msg import AgentCommand, WorldState, GameResult
 
 import importlib
 import pkgutil
-
 
 def _import_all_modules(package_name: str, suffix: str):
     """
@@ -37,15 +38,19 @@ def _import_all_modules(package_name: str, suffix: str):
             continue
         importlib.import_module(modname)
 
-
 TERMINATE_SLEEP_TIME = 0.05
 TERMINATE_TIMEOUT = 3.0
 GAME_TICK_HZ = 60
-QUEUE_SIZE = 100
 DEFAULT_GAME_DURATION = 300
 IS_SYS_WIN = sys.platform.startswith("win")
 CREATE_NEW_PROCESS_GROUP_WIN_SYS = 0x00000200
 
+QOS_PROFILE = QoSProfile(
+    depth=1,
+    history=HistoryPolicy.KEEP_LAST,
+    reliability=ReliabilityPolicy.BEST_EFFORT,
+    durability=DurabilityPolicy.VOLATILE,
+)
 
 def _terminate_proc(proc, timeout=TERMINATE_TIMEOUT):
     try:
@@ -72,22 +77,18 @@ def _terminate_proc(proc, timeout=TERMINATE_TIMEOUT):
         except Exception:
             pass
 
-
 def stop_all_agents(agent_procs: List[subprocess.Popen]):
     for p in agent_procs:
         _terminate_proc(p)
     agent_procs.clear()
-
 
 def create_agent_processes(agents_args: List[List[str]]):
     if IS_SYS_WIN:
         return [subprocess.Popen(args, creationflags=CREATE_NEW_PROCESS_GROUP_WIN_SYS) for args in agents_args]
     return [subprocess.Popen(args, preexec_fn=os.setsid) for args in agents_args]
 
-
 def command_to_tuple(cmd):
     return (cmd.agent_id, cmd.vx, cmd.vy)
-
 
 class GameManagerNode(Node):
     def __init__(self, simulation_name: str, **params):
@@ -123,18 +124,18 @@ class GameManagerNode(Node):
             AgentCommand,
             '/agent_command',
             self._agent_command_cb,
-            QUEUE_SIZE
+            QOS_PROFILE
         )
         self.agent_a_update_pub = self.create_publisher(
             WorldState,
             '/world_update_a',
-            QUEUE_SIZE
+            QOS_PROFILE
         )
 
         self.agent_b_update_pub = self.create_publisher(
             WorldState,
             '/world_update_b',
-            QUEUE_SIZE
+            QOS_PROFILE
         )
 
         self.result_pub = self.create_publisher(GameResult, '/game_result', 10)
@@ -150,8 +151,9 @@ class GameManagerNode(Node):
         period = 1.0 / hz
 
         self.timer = self.create_timer(period, self._tick)
+        self._tick_lock = threading.Lock()
 
-        self.logger.info("GameManagerNode initialized")
+        self.logger.info(f"GameManagerNode initialized with {simulation_name} simulation")
 
     def _agent_command_cb(self, msg: AgentCommand):
         self.agent_commands[msg.agent_id] = msg
@@ -176,6 +178,7 @@ class GameManagerNode(Node):
         self.logger.info(f"Starting game: {scenario_name} - "
                          + f"{team_a_name}: {num_agents_team_a} vs {team_b_name}: {num_agents_team_b}")
 
+        self.agent_commands.clear()
         team_a_agent = get_team_policy(team_a_name)(num_agents_team_a=num_agents_team_a,
                                                     num_agents_team_b=num_agents_team_b,
                                                     team='A', **rules)
@@ -221,6 +224,7 @@ class GameManagerNode(Node):
 
         # inform simulation about new game
         self.sim.reset_game(num_agents_team_a=num_agents_team_a, num_agents_team_b=num_agents_team_b)
+        self.sim_width, self.sim_height = self.sim.get_table_sizes()
 
         response.success = True
         response.message = "Game started"
@@ -233,6 +237,8 @@ class GameManagerNode(Node):
 
     def end_game(self):
         self.game_active = False
+        with self._tick_lock:
+            pass
         scores = self.sim.end_game()
         stop_all_agents(self.agent_procs)
         shutil.rmtree(self._policy_dir, ignore_errors=True)
@@ -252,21 +258,26 @@ class GameManagerNode(Node):
         if not self.game_active:
             return
 
-        # Apply agent commands to the simulation
-        commands = [command_to_tuple(cmd) for cmd in self.agent_commands.values()]
-        self.agent_commands.clear()
-        self.sim.apply_commands(commands)
+        call_end = False
+        with self._tick_lock:
+            # Apply agent commands to the simulation
+            commands = [command_to_tuple(cmd) for cmd in self.agent_commands.values()]
+            self.agent_commands.clear()
+            self.sim.apply_commands(commands)
 
-        # Get the updated state from the simulation
-        world_state = self.sim.get_world_state()
+            # Get the updated state from the simulation
+            world_state = self.sim.get_world_state()
 
-        self.logger.info(world_state)
-        state_a, state_b = self.transform_world_state(world_state)
+            self.logger.info(world_state)
+            state_a, state_b = self.transform_world_state(world_state)
 
-        self.agent_a_update_pub.publish(state_a)
-        self.agent_b_update_pub.publish(state_b)
+            self.agent_a_update_pub.publish(state_a)
+            self.agent_b_update_pub.publish(state_b)
 
-        if perf_counter() - self.game_start_time >= self.game_duration:
+            if perf_counter() - self.game_start_time >= self.game_duration:
+                call_end = True
+
+        if call_end:
             self.end_game()
 
     def transform_world_state(self, world_state: Dict) -> Tuple[WorldState, WorldState]:
@@ -275,19 +286,16 @@ class GameManagerNode(Node):
         """
         time_stamp = self.rclpy_clock.now().to_msg()
         state_a = WorldState(stamp=time_stamp, **world_state)
-        width = self.sim.width
-        height = self.sim.height
         state_b = WorldState(stamp=time_stamp,
-                             puck_x=width - world_state['puck_x'],
-                             puck_y=height - world_state['puck_y'],
+                             puck_x=self.sim_width - world_state['puck_x'],
+                             puck_y=self.sim_height - world_state['puck_y'],
                              puck_vx=-world_state['puck_vx'],
                              puck_vy=-world_state['puck_vy'],
-                             agent_x=[width - x for x in world_state['agent_x']],
-                             agent_y=[height - y for y in world_state['agent_y']],
+                             agent_x=[self.sim_width - x for x in world_state['agent_x']],
+                             agent_y=[self.sim_height - y for y in world_state['agent_y']],
                              agent_vx=[-vx for vx in world_state['agent_vx']],
                              agent_vy=[-vy for vy in world_state['agent_vy']], )
         return state_a, state_b
-
 
 def main(args=None):
     rclpy.init(args=args)
@@ -317,7 +325,6 @@ def main(args=None):
     rclpy.spin(node)
     node.destroy_node()
     rclpy.shutdown()
-
 
 if __name__ == '__main__':
     main()

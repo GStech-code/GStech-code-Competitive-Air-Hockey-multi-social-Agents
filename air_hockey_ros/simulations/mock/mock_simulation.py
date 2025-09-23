@@ -4,8 +4,10 @@ from air_hockey_ros import Simulation, register_simulation
 
 @register_simulation('mock')
 class MockSimulation(Simulation):
-    def __init__(self, width=800, height=600, step_size=8.0, use_physics=False):
-        super().__init__(width=width, height=height, step_size=step_size)
+    def __init__(self, width=800, height=600, unit_speed_px=8.0, use_physics=False):
+        self.width = width
+        self.height = height
+        self.unit_speed_px = unit_speed_px
         self.use_physics = use_physics
 
         # Puck
@@ -20,12 +22,22 @@ class MockSimulation(Simulation):
         self.agent_vx = []
         self.agent_vy = []
 
+    def get_table_sizes(self) -> Tuple[int, int]:
+        return self.width, self.height
+
+    def end_game(self):
+        return {"team_a_score": self.team_a_score, "team_b_score": self.team_b_score}
+
     def reset_game(self, num_agents_team_a, num_agents_team_b, **params):
-        super().reset_game(num_agents_team_a, num_agents_team_b)
+        self.team_a_score = 0
+        self.team_b_score = 0
+        self.num_agents_team_a = num_agents_team_a
+        self.num_agents_team_b = num_agents_team_b
+        self.num_agents = num_agents_team_a + num_agents_team_b
 
         self.width = params.get("width", self.width)
         self.height = params.get("height", self.height)
-        self.step_size = float(params.get("step_size", self.step_size))
+        self.unit_speed_px = float(params.get("unit_speed_px", self.unit_speed_px))
 
         if 'agent_positions' in params:
             for i, pos in enumerate(params["agent_positions"]):
@@ -60,8 +72,8 @@ class MockSimulation(Simulation):
             self.agent_vy[id] = vy
 
             if self.use_physics:
-                nx = self.agent_x[id] + vx * self.step_size
-                ny = self.agent_y[id] + vy * self.step_size
+                nx = self.agent_x[id] + vx * self.unit_speed_px
+                ny = self.agent_y[id] + vy * self.unit_speed_px
                 # Clamp inside field
                 self.agent_x[id] = min(max(20, nx), self.width - 20)
                 self.agent_y[id] = min(max(20, ny), self.height - 20)

@@ -10,29 +10,29 @@ class SimpleTeamPolicy(TeamPolicy):
         self.width = params['width']
         self.height = params['height']
         self.goal_gap = params.get('goal_gap', 10)
-        self.p_radius = params.get('p_radius', 1)
-        self.step_size = params.get('step_size', 8)
+        self.puck_radius = params.get('puck_radius', 1)
+        self.paddle_radius = params.get('paddle_radius', 1)
+        self.unit_speed_px = params.get('unit_speed_px', 8)
 
     def get_policies(self) -> List[AgentPolicy]:
         if len(self.agents_ids) == 0:
             return []
-        x_cross = self.goal_gap + self.p_radius
-        x_max_region = self.width//2 - self.p_radius
-        y_min_region = self.p_radius
-        y_max_region = self.height//2 - self.p_radius
+        x_cross = self.goal_gap + self.paddle_radius
+        x_max_region = self.width//2 - self.paddle_radius
+        y_min_region = self.paddle_radius
+        y_max_region = self.height//2 - self.paddle_radius
         if len(self.agents_ids) == 1:
-            return [SimpleRegionalAgentPolicy(id=self.agents_ids[0], p_radius=self.p_radius,
-                                             x_min=x_cross, y_min=y_min_region,
-                                             x_max=x_max_region, y_max=y_max_region, step_size=self.step_size)]
-        x_min_region = x_cross + 2 * self.p_radius
+            return [SimpleRegionalAgentPolicy(agent_id=self.agents_ids[0], x_min=x_cross, y_min=y_min_region,
+                                            x_max=x_max_region, y_max=y_max_region, unit_speed_px=self.unit_speed_px)]
+        x_min_region = x_cross + 2 * self.paddle_radius
         num_regions = len(self.agents_ids) - 1
         height_divided = self.height // num_regions
         region_confines = [i * height_divided for i in range(1, num_regions)]
-        agent_min_ys = [y_min_region] + [confine - self.p_radius for confine in region_confines]
-        agent_max_ys = [confine + self.p_radius for confine in region_confines] + [y_max_region]
-        return ([SimpleRegionalAgentPolicy(id=self.agents_ids[i], p_radius=self.p_radius,
-                                             x_min=x_min_region, y_min=y_min,
-                                             x_max=x_max_region, y_max=y_max, step_size=self.step_size)
+        agent_min_ys = [y_min_region] + [confine - self.paddle_radius for confine in region_confines]
+        agent_max_ys = [confine + self.paddle_radius for confine in region_confines] + [y_max_region]
+        return ([SimpleRegionalAgentPolicy(agent_id=self.agents_ids[i], x_min=x_min_region, y_min=y_min,
+                                           x_max=x_max_region, y_max=y_max, unit_speed_px=self.unit_speed_px,
+                                           puck_radius=self.puck_radius, paddle_radius=self.paddle_radius,)
                  for i, (y_min, y_max) in enumerate(zip(agent_min_ys, agent_max_ys))]
-                + [SimpleCrosserAgentPolicy(id=self.agents_ids[-1], p_radius=self.p_radius,
+                + [SimpleCrosserAgentPolicy(agent_id=self.agents_ids[-1],
                                             x_cross=x_cross, y_min=y_min_region, y_max=y_max_region)])

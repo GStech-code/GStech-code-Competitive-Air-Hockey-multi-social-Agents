@@ -25,7 +25,6 @@ def world_state_to_dict(msg) -> Dict:
     d = {
         "stamp_sec": sec,
         "stamp_nanosec": nsec,
-        "stamp_ms": sec * 1000.0 + nsec / 1e6,
 
         "puck_x": msg.puck_x,
         "puck_y": msg.puck_y,
@@ -154,7 +153,6 @@ class AgentNode(Node):
         if getattr(self, "_worker", None) and self._worker.is_alive():
             self._worker.join(timeout=1.0)
         super().destroy_node()
-
 
 def parse_args():
     parser = argparse.ArgumentParser(description='Air Hockey Agent Node')
