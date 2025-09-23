@@ -1,0 +1,53 @@
+# Environment Configuration
+environment:
+  name: "HierarchicalAirHockey2v2"
+  
+  # Game settings
+  screen_width: 800
+  screen_height: 600
+  max_score: 5
+  max_episode_steps: 3600
+  
+  # Physics
+  disc_max_speed: 8.0
+  paddle_max_speed: 5.0
+  friction: 0.98
+  restitution: 0.8
+  
+  # Rendering
+  render_training: false
+  render_evaluation: true
+  fps: 60
+  
+  # Observations
+  observation_type: "hierarchical"  # or "flat"
+  normalize_observations: true
+  include_history: true
+  history_length: 5
+  
+  # Actions  
+  action_type: "continuous"  # or "discrete"
+  action_space_size: 2  # [x_vel, y_vel]
+  
+agents:
+  high_level:
+    observation_space:
+      team_formation: 8
+      game_state: 12
+      opponent_analysis: 6
+      strategic_features: 10
+      
+    action_space:
+      policy_assignments: 4  # 2 per team member
+      formation_commands: 3
+      priority_targets: 2
+      
+  low_level:
+    observation_space:
+      local_state: 15
+      assigned_policy: 3
+      communication: 8
+      
+    action_space:
+      movement: 2
+      execution_intensity: 1

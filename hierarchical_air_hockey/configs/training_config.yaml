@@ -1,0 +1,81 @@
+# Hierarchical Air Hockey Training Configuration
+training:
+  algorithm: "MADDPG"
+  total_timesteps: 10_000_000
+  batch_size: 512
+  learning_rate: 0.0001
+  gamma: 0.99
+  tau: 0.005
+  
+  # Checkpointing
+  save_frequency: 100000  # timesteps
+  evaluation_frequency: 50000
+  keep_checkpoints: 10
+
+hierarchical:
+  enabled: true
+  levels: 2
+  high_level_frequency: 10  # steps between high-level decisions
+  low_level_frequency: 1   # continuous low-level control
+  
+  # Communication settings
+  communication_dim: 8
+  message_history_length: 5
+
+curriculum:
+  enabled: true
+  auto_advance: true
+  
+  stages:
+    - name: "individual_policies"
+      duration: 1_000_000
+      focus: "low_level_only"
+      success_threshold: 0.7
+      
+    - name: "fixed_combinations" 
+      duration: 2_000_000
+      focus: "policy_combinations"
+      success_threshold: 0.75
+      
+    - name: "adaptive_strategies"
+      duration: 5_000_000
+      focus: "full_hierarchy"
+      success_threshold: 0.8
+
+policies:
+  defensive:
+    reward_weights:
+      goal_protection: 2.0
+      interception: 1.5
+      positioning: 1.0
+      
+  offensive: 
+    reward_weights:
+      scoring: 3.0
+      disc_control: 2.0
+      pressure: 1.0
+      
+  passing:
+    reward_weights:
+      teammate_assist: 2.5
+      positioning: 1.5
+      coordination: 2.0
+
+rewards:
+  high_level:
+    team_coordination: 10.0
+    strategic_positioning: 5.0
+    adaptive_bonus: 15.0
+    formation_maintenance: 8.0
+    
+  low_level:
+    policy_adherence: 3.0
+    individual_skill: 5.0  
+    team_support: 7.0
+    execution_quality: 4.0
+    
+  shared:
+    goal_scored: 100.0
+    goal_conceded: -50.0
+    disc_hit: 5.0
+    win_bonus: 200.0

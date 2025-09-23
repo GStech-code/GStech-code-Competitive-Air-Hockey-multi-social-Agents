@@ -1,0 +1,41 @@
+# Hierarchical Air Hockey Requirements
+# Core RL Framework
+ray[rllib]==2.8.0
+torch>=1.13.0,<2.1.0
+tensorflow>=2.8.0,<2.15.0
+
+# Multi-Agent RL
+pettingzoo>=1.22.0
+gymnasium>=0.29.0
+stable-baselines3>=2.0.0
+
+# Game Environment
+pygame>=2.5.0
+PyOpenGL>=3.1.7
+numpy>=1.21.0,<1.25.0
+
+# Configuration and Utilities  
+pyyaml>=6.0
+omegaconf>=2.3.0
+hydra-core>=1.3.0
+
+# Monitoring and Visualization
+tensorboard>=2.8.0
+wandb>=0.15.0
+matplotlib>=3.5.0
+seaborn>=0.11.0
+plotly>=5.0.0
+
+# Development and Testing
+pytest>=7.0.0
+pytest-cov>=4.0.0
+black>=22.0.0
+flake8>=5.0.0
+
+# Data handling
+pandas>=1.5.0
+scipy>=1.9.0
+
+# Optional: For advanced visualization
+opencv-python>=4.5.0
+pillow>=9.0.0
