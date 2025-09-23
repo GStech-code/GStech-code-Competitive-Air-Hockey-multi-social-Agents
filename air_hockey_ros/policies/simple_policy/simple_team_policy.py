@@ -12,7 +12,7 @@ class SimpleTeamPolicy(TeamPolicy):
         self.goal_gap = params.get('goal_gap', 10)
         self.puck_radius = params.get('puck_radius', 1)
         self.paddle_radius = params.get('paddle_radius', 1)
-        self.unit_speed_px = params.get('unit_speed_px', 8)
+        self.unit_speed_px = params.get('unit_speed_px', 4.0)
 
     def get_policies(self) -> List[AgentPolicy]:
         if len(self.agents_ids) == 0:

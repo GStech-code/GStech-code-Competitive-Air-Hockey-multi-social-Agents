@@ -43,7 +43,7 @@ class SimpleRegionalAgentPolicy(AgentPolicy):
             valid_y = True
 
         if valid_x and valid_y:
-            if agent_x < puck_x - self.paddle_margin:
+            if agent_x <= puck_x - self.paddle_margin:
                 return self.up_puck_action(agent_x, agent_y, puck_x, puck_y, puck_vx, puck_vy)
             else:
                 return self.down_puck_action(agent_x, agent_y, puck_x, puck_y)
@@ -109,7 +109,7 @@ class SimpleRegionalAgentPolicy(AgentPolicy):
 
                 # Optional soft bias: encourage "strike from behind" if feasible
                 if favor_behind:
-                    behind_now = agent_x < (puck_x - self.paddle_margin)
+                    behind_now = agent_x <= (puck_x - self.paddle_margin)
                     closing_x = vx > 0  # can you actually close in x?
                     penalty = 0.0
                     if behind_now and not closing_x:
@@ -149,8 +149,10 @@ class SimpleRegionalAgentPolicy(AgentPolicy):
         x_diff = puck_x - agent_x
         if abs_y_diff > self.unit_speed_px:
             if x_diff >= 0:
-                return -1, int(y_diff/x_diff)
-            if x_diff < -self.paddle_margin or agent_x <= self.x_min + self.unit_speed_px:
+                if agent_x <= self.x_max - self.unit_speed_px:
+                    return 1, int(y_diff / abs_y_diff)
+                return 0, int(y_diff / abs_y_diff)
+            if x_diff < -self.paddle_margin and agent_x >= self.x_min + self.unit_speed_px:
                 return -1, -int(y_diff/abs_y_diff)
             return 0, -int(y_diff/abs_y_diff)
         diff_max = self.y_max - agent_y

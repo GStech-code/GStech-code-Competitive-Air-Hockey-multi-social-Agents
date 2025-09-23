@@ -16,5 +16,6 @@ def register_simulation(name=None):
 def get_team_policy(name):
     return _REGISTERED_POLICIES[name]
 
+
 def get_simulation(name):
     return _REGISTERED_SIMULATIONS[name]

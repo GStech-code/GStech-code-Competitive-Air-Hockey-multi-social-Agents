@@ -42,20 +42,7 @@ class BaseEngine:
     _rng: random.Random
 
     def __init__(self, **params) -> None:
-        self.width = int(params.get("width", 800))
-        self.height = int(params.get("height", 600))
-        self.step_size = float(params.get("step_size", 1.0 / 60.0))
-        self.unit_speed_px = float(params.get("unit_speed_px", 4.0))
-        self.paddle_radius = float(params.get("paddle_radius", 20.0))
-        self.puck_radius = float(params.get("puck_radius", 12.0))
-        self.friction_per_tick = float(params.get("friction_per_tick", 1.0))
-        self.bounce_damping = float(params.get("bounce_damping", 1.0))
-        self.halfline_policy = str(params.get("halfline_policy", "allow"))  # "allow"|"clamp"|"soft"
-        self.goal_gap_half = float(params.get("goal_gap_half", 120.0))
-        self.goal_semicircle_radius = float(params.get("goal_semicircle_radius", self.width / 10.0))
-        self.jitter_enabled = bool(params.get("jitter_enabled", True))
-        self.jitter_seed = params.get("jitter_seed", None)
-        self.hold_last_ticks = int(params.get("hold_last_ticks", 2))
+        self.configure(**params)
 
         self.tick = 0
         self.scores_a = 0
@@ -79,11 +66,22 @@ class BaseEngine:
         self._rng = random.Random(self.jitter_seed)
 
     def configure(self, **params) -> None:
-        for k, v in params.items():
-            if hasattr(self, k):
-                setattr(self, k, v)
+        self.width = int(params.get("width", 800))
+        self.height = int(params.get("height", 600))
+        self.step_size = float(params.get("step_size", 1.0 / 60.0))
+        self.unit_speed_px = float(params.get("unit_speed_px", 4.0))
+        self.paddle_radius = float(params.get("paddle_radius", 20.0))
+        self.puck_radius = float(params.get("puck_radius", 12.0))
+        self.friction_per_tick = float(params.get("friction_per_tick", 1.0))
+        self.bounce_damping = float(params.get("bounce_damping", 1.0))
+        self.halfline_policy = str(params.get("halfline_policy", "allow"))  # "allow"|"clamp"|"soft"
+        self.goal_gap_half = float(params.get("goal_gap_half", 120.0))
+        self.goal_semicircle_radius = float(params.get("goal_semicircle_radius", self.width / 10.0))
+        self.jitter_enabled = bool(params.get("jitter_enabled", True))
+        self.jitter_seed = params.get("jitter_seed", None)
+        self.hold_last_ticks = int(params.get("hold_last_ticks", 2))
 
-        if "jitter_seed" in params:
+        if self.jitter_seed is not None:
             self._rng = random.Random(self.jitter_seed)
 
     def reset(self, num_a: int, num_b: int,
@@ -142,8 +140,8 @@ class BaseEngine:
         now = self.tick
         for aid, vx, vy in commands:
             # store raw command; integration scales by unit_speed_px
-            self.agent_vx[aid] = float(vx)
-            self.agent_vy[aid] = float(vy)
+            self.agent_vx[aid] = float(vx) * self.unit_speed_px
+            self.agent_vy[aid] = float(vy) * self.unit_speed_px
             self.agent_last_cmd_tick[aid] = now
 
     def step(self) -> None:
@@ -209,12 +207,11 @@ class BaseEngine:
         self._prev_agent_x = [0.0] * n
         self._prev_agent_y = [0.0] * n
 
-        ux = self.unit_speed_px
         for i in range(n):
             self._prev_agent_x[i] = self.agent_x[i]
             self._prev_agent_y[i] = self.agent_y[i]
-            self.agent_x[i] += self.agent_vx[i] * ux
-            self.agent_y[i] += self.agent_vy[i] * ux
+            self.agent_x[i] += self.agent_vx[i]
+            self.agent_y[i] += self.agent_vy[i]
 
     def _enforce_bounds_and_halfline(self) -> None:
         """

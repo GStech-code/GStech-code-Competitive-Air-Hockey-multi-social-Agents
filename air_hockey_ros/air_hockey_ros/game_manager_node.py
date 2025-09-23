@@ -87,9 +87,6 @@ def create_agent_processes(agents_args: List[List[str]]):
         return [subprocess.Popen(args, creationflags=CREATE_NEW_PROCESS_GROUP_WIN_SYS) for args in agents_args]
     return [subprocess.Popen(args, preexec_fn=os.setsid) for args in agents_args]
 
-def command_to_tuple(cmd):
-    return (cmd.agent_id, cmd.vx, cmd.vy)
-
 class GameManagerNode(Node):
     def __init__(self, simulation_name: str, **params):
         super().__init__('game_manager')
@@ -109,6 +106,7 @@ class GameManagerNode(Node):
         self.agent_procs: List[subprocess.Popen] = []
         self.agent_commands: Dict[int, AgentCommand] = {}
         self.agent_team_map: Dict[int, Literal['A', 'B']] = {}
+        self.reverse_action_map: Dict[int, bool] = {}
 
         try:
             self.sim: Simulation = get_simulation(simulation_name)(**params)
@@ -158,6 +156,12 @@ class GameManagerNode(Node):
     def _agent_command_cb(self, msg: AgentCommand):
         self.agent_commands[msg.agent_id] = msg
 
+    def command_to_tuple(self, cmd):
+        agent_id = cmd.agent_id
+        if self.reverse_action_map[agent_id]:
+            return (agent_id, -cmd.vx, -cmd.vy)
+        return (agent_id, cmd.vx, cmd.vy)
+
     def _start_game_callback(self, request, response):
         if self.game_active:
             response.success = False
@@ -178,6 +182,8 @@ class GameManagerNode(Node):
         self.logger.info(f"Starting game: {scenario_name} - "
                          + f"{team_a_name}: {num_agents_team_a} vs {team_b_name}: {num_agents_team_b}")
 
+        self.agent_team_map.clear()
+        self.reverse_action_map.clear()
         self.agent_commands.clear()
         team_a_agent = get_team_policy(team_a_name)(num_agents_team_a=num_agents_team_a,
                                                     num_agents_team_b=num_agents_team_b,
@@ -194,8 +200,10 @@ class GameManagerNode(Node):
 
         for aid in agents_a:
             self.agent_team_map[aid] = 'A'
+            self.reverse_action_map[aid] = False
         for aid in agents_b:
             self.agent_team_map[aid] = 'B'
+            self.reverse_action_map[aid] = True
 
         # Serialize agent policies and store paths
         self._policy_dir = tempfile.mkdtemp(prefix="ahg_policies_")
@@ -223,7 +231,7 @@ class GameManagerNode(Node):
         self.agent_procs = create_agent_processes(agents_args)
 
         # inform simulation about new game
-        self.sim.reset_game(num_agents_team_a=num_agents_team_a, num_agents_team_b=num_agents_team_b)
+        self.sim.reset_game(num_agents_team_a=num_agents_team_a, num_agents_team_b=num_agents_team_b, **rules)
         self.sim_width, self.sim_height = self.sim.get_table_sizes()
 
         response.success = True
@@ -261,10 +269,9 @@ class GameManagerNode(Node):
         call_end = False
         with self._tick_lock:
             # Apply agent commands to the simulation
-            commands = [command_to_tuple(cmd) for cmd in self.agent_commands.values()]
+            commands = [self.command_to_tuple(cmd) for cmd in self.agent_commands.values()]
             self.agent_commands.clear()
             self.sim.apply_commands(commands)
-
             # Get the updated state from the simulation
             world_state = self.sim.get_world_state()
 
