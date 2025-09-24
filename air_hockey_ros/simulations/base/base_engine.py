@@ -2,6 +2,7 @@ from __future__ import annotations
 from typing import List, Tuple, Dict, Optional
 import math
 import random
+from .rolling_queues import RollingMinMaxQueue, RollingAvgQueue
 
 Command = Tuple[int, int, int]  # (agent_id, vx, vy)
 
@@ -41,8 +42,7 @@ class BaseEngine:
     _prev_agent_y: List[float]
     _rng: random.Random
 
-    def __init__(self, **params) -> None:
-        self.configure(**params)
+    def __init__(self,) -> None:
 
         self.tick = 0
         self.scores_a = 0
@@ -55,15 +55,24 @@ class BaseEngine:
         self.agent_team = []
         self.agent_last_cmd_tick = []
 
-        self.puck_x = self.width / 2.0
-        self.puck_y = self.height / 2.0
+        self.puck_x = 0.0
+        self.puck_y = 0.0
+        self.last_puck_x = self.puck_x
+        self.last_puck_y = self.puck_y
         self.puck_vx = 0.0
         self.puck_vy = 0.0
 
         self._prev_agent_x = []
         self._prev_agent_y = []
 
-        self._rng = random.Random(self.jitter_seed)
+        self.stuck_window = 1
+
+        self.puck_x_history = RollingMinMaxQueue(self.stuck_window)
+        self.puck_y_history = RollingMinMaxQueue(self.stuck_window)
+        self.puck_velocity_history = RollingAvgQueue(self.stuck_window)
+
+        self.jitter_seed = None
+        self._rng = random.Random()
 
     def configure(self, **params) -> None:
         self.width = int(params.get("width", 800))
@@ -80,22 +89,29 @@ class BaseEngine:
         self.jitter_enabled = bool(params.get("jitter_enabled", True))
         self.jitter_seed = params.get("jitter_seed", None)
         self.hold_last_ticks = int(params.get("hold_last_ticks", 2))
+        self.stuck_window = int(params.get("stuck_window", 60))
+        self.puck_max_speed = float(params.get("puck_max_speed", 6.0))
+        self.stuck_px_boundary = float(params.get("stuck_px_boundary", 20.0))
 
         if self.jitter_seed is not None:
             self._rng = random.Random(self.jitter_seed)
 
-    def reset(self, num_a: int, num_b: int,
-        agent_positions: Optional[List[Tuple[float, float]]] = None,
-        puck_pos: Optional[Tuple[float, float]] = None,
-        puck_vel: Optional[Tuple[float, float]] = None) -> None:
+    def reset(self, num_agents_team_a: int, num_agents_team_b: int,
+              agent_positions: Optional[List[Tuple[float, float]]] = None,
+              puck_pos: Optional[Tuple[float, float]] = None,
+              puck_vel: Optional[Tuple[float, float]] = None) -> None:
         # You’ll wire placements; physics doesn’t require full details here
-        n = int(num_a) + int(num_b)
+        n = int(num_agents_team_a) + int(num_agents_team_b)
         self.agent_x = [0.0] * n
         self.agent_y = [0.0] * n
         self.agent_vx = [0.0] * n
         self.agent_vy = [0.0] * n
-        self.agent_team = [0] * int(num_a) + [1] * int(num_b)
+        self.agent_team = [0] * int(num_agents_team_a) + [1] * int(num_agents_team_b)
         self.agent_last_cmd_tick = [-10**9] * n  # far in the past
+        self.puck_x_history.clear_and_re_capacity(self.stuck_window)
+        self.puck_y_history.clear_and_re_capacity(self.stuck_window)
+        self.puck_velocity_history.clear_and_re_capacity(self.stuck_window)
+
 
         # default placements if none provided (A at 1/4 width, B at 3/4)
         if agent_positions and len(agent_positions) == n:
@@ -103,15 +119,15 @@ class BaseEngine:
                 self.agent_x[i] = float(ax)
                 self.agent_y[i] = float(ay)
         else:
-            if num_a > 0:
-                gap_a = self.height / (num_a + 1)
-                for i in range(num_a):
+            if num_agents_team_a > 0:
+                gap_a = self.height / (num_agents_team_a + 1)
+                for i in range(num_agents_team_a):
                     self.agent_x[i] = self.width * 0.25
                     self.agent_y[i] = gap_a * (i + 1)
-            if num_b > 0:
-                gap_b = self.height / (num_b + 1)
-                for j in range(num_b):
-                    idx = num_a + j
+            if num_agents_team_b > 0:
+                gap_b = self.height / (num_agents_team_b + 1)
+                for j in range(num_agents_team_b):
+                    idx = num_agents_team_a + j
                     self.agent_x[idx] = self.width * 0.75
                     self.agent_y[idx] = self.height - gap_b * (j + 1)
 
@@ -126,6 +142,8 @@ class BaseEngine:
             self.puck_vx = 0.0
             self.puck_vy = 0.0
 
+        self.last_puck_x = self.puck_x
+        self.last_puck_y = self.puck_y
         self.scores_a = 0
         self.scores_b = 0
         self.tick = 0
@@ -160,10 +178,11 @@ class BaseEngine:
         self._collide_puck_agents()
         self._integrate_puck()
         self._puck_walls_and_goals()
+        self._detect_and_reset_if_stuck()
         self.tick += 1
 
-    # --- World query ---
-    def world_state(self) -> Dict:
+    # --- Queries ---
+    def get_world_state(self) -> Dict:
         """
         Return a COPY of world state (ROS/GameManager logging format).
         """
@@ -266,7 +285,6 @@ class BaseEngine:
         paddle_mass = 3.0
         restitution = 0.75
         velocity_transfer = 0.3
-        puck_max_speed = 6.0  # matches Disc.max_speed
 
         n = len(self.agent_x)
         for i in range(n):
@@ -318,8 +336,8 @@ class BaseEngine:
 
             # Cap puck speed
             speed = math.hypot(self.puck_vx, self.puck_vy)
-            if speed > puck_max_speed:
-                scale = puck_max_speed / speed
+            if speed > self.puck_max_speed:
+                scale = self.puck_max_speed / speed
                 self.puck_vx *= scale
                 self.puck_vy *= scale
 
@@ -383,10 +401,36 @@ class BaseEngine:
                 self.puck_x = self.width - r
                 self.puck_vx = -self.puck_vx * self.bounce_damping
 
+    def _detect_and_reset_if_stuck(self) -> None:
+        """
+        Detect puck stuck in a small area (e.g. trapped between paddles).
+        Uses last 60 positions. If bounding box is too small and puck
+        keeps moving, treat as stuck and reset to center.
+        """
+        # Record position
+        self.puck_x_history.append(self.puck_x)
+        self.puck_y_history.append(self.puck_y)
+        self.puck_velocity_history.append(math.hypot(self.puck_x - self.last_puck_x, self.puck_y - self.last_puck_y))
+        self.last_puck_x = self.puck_x
+        self.last_puck_y = self.puck_y
+
+        if len(self.puck_velocity_history) < self.stuck_window:
+            return  # not enough data yet
+
+        # Heuristic thresholds
+        if (self.puck_x_history.range() < self.stuck_px_boundary
+                and self.puck_y_history.range() < self.stuck_px_boundary
+                and self.puck_velocity_history.avg() > 0.1):
+            # Reset puck to center without scoring
+            self._center_faceoff()
+            # Clear history after reset
+            self.puck_x_history.clear()
+            self.puck_y_history.clear()
+            self.puck_velocity_history.clear()
 
     # ====== small helper ======
 
-    def _center_faceoff(self, direction: int = 1) -> None:
+    def _center_faceoff(self, direction: int = 0) -> None:
         """
         Reset puck to center and nudge toward the side that conceded.
         direction: +1 -> toward right, -1 -> toward left

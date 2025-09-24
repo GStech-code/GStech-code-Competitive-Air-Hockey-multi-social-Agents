@@ -111,8 +111,7 @@ class GameManagerNode(Node):
         try:
             self.sim: Simulation = get_simulation(simulation_name)(**params)
         except Exception as e:
-            self.logger.error("Simulation name doesn't exist")
-            self.logger.error(e)
+            self.logger.error(f"Error with {simulation_name} simulation:\n{e}")
             raise e
 
         self.game_active: bool = False

@@ -19,7 +19,7 @@ def _flatten_rules(scn: dict) -> dict:
     if 'height' in table:    rules['height'] = int(table['height'])
     if 'goal_gap' in table:  rules['goal_gap'] = int(table['goal_gap'])
     paddle = scn.get('paddle', {})
-    if 'unit_speed_px' in paddle: rules['unit_speed_px'] = int(paddle['unit_speed_px'])
+    if 'unit_speed_px' in paddle: rules['unit_speed_px'] = float(paddle['unit_speed_px'])
     if 'paddle_radius' in paddle: rules['paddle_radius'] = int(paddle['paddle_radius'])
     puck = scn.get('puck', {})
     if 'puck_radius' in puck:   rules['puck_radius'] = int(puck['puck_radius'])
@@ -89,7 +89,7 @@ def _build_actions(context, *args, **kwargs):
             executable="game_manager_node.py",
             name="game_manager",
             output="screen",
-            arguments=["base", ], #"use_physics::=true"
+            arguments=["base", "view::=true"],  # alternative: ["mock", "use_physics::=true"]
         )
     )
 

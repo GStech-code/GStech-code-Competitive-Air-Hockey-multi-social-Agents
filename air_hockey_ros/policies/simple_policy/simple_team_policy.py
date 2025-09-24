@@ -20,7 +20,7 @@ class SimpleTeamPolicy(TeamPolicy):
         x_cross = self.goal_gap + self.paddle_radius
         x_max_region = self.width//2 - self.paddle_radius
         y_min_region = self.paddle_radius
-        y_max_region = self.height//2 - self.paddle_radius
+        y_max_region = self.height - self.paddle_radius
         if len(self.agents_ids) == 1:
             return [SimpleRegionalAgentPolicy(agent_id=self.agents_ids[0], x_min=x_cross, y_min=y_min_region,
                                             x_max=x_max_region, y_max=y_max_region, unit_speed_px=self.unit_speed_px)]
