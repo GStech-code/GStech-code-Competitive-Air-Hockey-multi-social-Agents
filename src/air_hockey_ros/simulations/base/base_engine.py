@@ -122,7 +122,7 @@ class BaseEngine:
         self.puck_y_history.clear_and_re_capacity(self.stuck_window)
         self.puck_velocity_history.clear_and_re_capacity(self.stuck_window)
 
-        if self.num_agents > 2:
+        if self.num_agents > 1:
             self._repair_x_index_func = self._repair_x_index
             self._separate_agents_func = self._separate_agents
         else:

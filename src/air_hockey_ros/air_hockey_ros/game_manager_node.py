@@ -76,18 +76,23 @@ def _terminate_proc(proc, timeout=TERMINATE_TIMEOUT):
         except Exception:
             pass
 
-def stop_all_agents(agent_procs: List[subprocess.Popen]):
-    for p in agent_procs:
-        _terminate_proc(p)
-    agent_procs.clear()
+class AgentProcs:
+    def __init__(self):
+        self.procs: List[subprocess.Popen] = []
 
-def create_agent_processes(agents_args: List[List[str]]):
-    if IS_SYS_WIN:
-        return [subprocess.Popen(args, creationflags=CREATE_NEW_PROCESS_GROUP_WIN_SYS) for args in agents_args]
-    return [subprocess.Popen(args, preexec_fn=os.setsid) for args in agents_args]
+    def create_agent_processes(self, agents_args: List[List[str]]):
+        self.stop_all_agents()
+        if IS_SYS_WIN:
+            self.procs = [subprocess.Popen(args, creationflags=CREATE_NEW_PROCESS_GROUP_WIN_SYS) for args in agents_args]
+        self.procs = [subprocess.Popen(args, preexec_fn=os.setsid) for args in agents_args]
+
+    def stop_all_agents(self):
+        for p in self.procs:
+            _terminate_proc(p)
+        self.procs.clear()
 
 class GameManagerNode(Node):
-    def __init__(self, simulation_name: str, **params):
+    def __init__(self, agent_procs: AgentProcs, simulation_name: str, **params):
         super().__init__('game_manager')
         self.rclpy_clock = rclpy.clock.Clock()
         self.logger = logging.getLogger('game_manager')
@@ -104,7 +109,7 @@ class GameManagerNode(Node):
         self.declare_parameter('tick_hz', GAME_TICK_HZ)
 
         self.agent_policy_paths: Dict[int, str] = {}
-        self.agent_procs: List[subprocess.Popen] = []
+        self.agent_procs = agent_procs
         self.agent_commands: Dict[int, AgentCommand] = {}
         self.agent_team_map: Dict[int, Literal['A', 'B']] = {}
         self.reverse_action_map: Dict[int, bool] = {}
@@ -230,7 +235,7 @@ class GameManagerNode(Node):
         ] for aid in agents_b])
 
         # Launch agents
-        self.agent_procs = create_agent_processes(agents_args)
+        self.agent_procs.create_agent_processes(agents_args)
 
         # inform simulation about new game
         self.sim.reset_game(num_agents_team_a=num_agents_team_a, num_agents_team_b=num_agents_team_b, **rules)
@@ -250,7 +255,7 @@ class GameManagerNode(Node):
         with self._tick_lock:
             pass
         scores = self.sim.end_game()
-        stop_all_agents(self.agent_procs)
+        self.agent_procs.stop_all_agents()
         shutil.rmtree(self._policy_dir, ignore_errors=True)
 
         team_a_score = scores['team_a_score']
@@ -309,34 +314,70 @@ class GameManagerNode(Node):
                              agent_vy=[-vy for vy in world_state['agent_vy']], )
         return state_a, state_b
 
-def main(args=None):
-    rclpy.init(args=args)
-
-    _import_all_modules("policies", suffix="team_policy")
-    _import_all_modules("simulations", suffix="simulation")
-
-    sim_name = sys.argv[1]
+def _parse_sim_args(argv):
+    sim_name = argv[1] if len(argv) > 1 else "mock"
     sim_params = {}
-
-    for arg in sys.argv[2:]:
+    for arg in argv[2:]:
         if "::=" in arg and not arg.startswith("_"):
             k, v = arg.split("::=", 1)
-            # basic type conversion
-            if v.lower() in ("true", "false"):
-                v = v.lower() == "true"
+            lv = v.lower()
+            if lv in ("true", "false"):
+                v = (lv == "true")
             elif v.isdigit():
                 v = int(v)
             else:
                 try:
                     v = float(v)
                 except ValueError:
-                    pass  # keep as string
+                    pass
             sim_params[k] = v
+    return sim_name, sim_params
 
-    node = GameManagerNode(simulation_name=sim_name, **sim_params)
-    rclpy.spin(node)
-    node.destroy_node()
-    rclpy.shutdown()
+
+def main(args=None):
+    rclpy.init(args=args)
+    node = None
+    agent_procs = AgentProcs()
+
+    _import_all_modules("policies", suffix="team_policy")
+    _import_all_modules("simulations", suffix="simulation")
+
+    def _term_handler(signum, frame):
+        raise SystemExit(128 + signum)
+
+    signal.signal(signal.SIGTERM, _term_handler)
+
+    sim_name, sim_params = _parse_sim_args(sys.argv)
+
+    logging.basicConfig(level=logging.DEBUG)
+
+    try:
+        node = GameManagerNode(agent_procs=agent_procs, simulation_name=sim_name, **sim_params)
+        rclpy.spin(node)
+    except KeyboardInterrupt:
+        logging.info("Interrupted by user (SIGINT).")
+    except SystemExit:
+        # Raised by SIGTERM handler or explicit sys.exit
+        logging.info("Shutting down (SIGTERM/SystemExit).")
+        raise
+    except Exception:
+        logging.exception("Uncaught exception in main()")
+    finally:
+        # Always stop agents first, then tear down ROS.
+        try:
+            agent_procs.stop_all_agents()
+        except Exception:
+            logging.exception("stop_all_agents() failed")
+        try:
+            if node is not None:
+                node.destroy_node()
+        except Exception:
+            logging.exception("destroy_node() failed")
+        try:
+            if rclpy.ok():
+                rclpy.shutdown()
+        except Exception:
+            logging.exception("rclpy.shutdown() failed")
 
 if __name__ == '__main__':
     main()

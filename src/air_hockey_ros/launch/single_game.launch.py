@@ -84,7 +84,7 @@ def _build_actions(context, *args, **kwargs):
             executable="game_manager_node.py",
             name="game_manager",
             output="screen",
-            arguments=["base", "view::=false", "log_team_a::=false", "log_team_b::=false"],  # alternative: ["mock", "use_physics::=true"]
+            arguments=["base", "view::=true", "log_team_a::=false", "log_team_b::=false"],  # alternative: ["mock", "use_physics::=true"]
         )
     )
 
