@@ -12,7 +12,7 @@ from rclpy.node import Node
 from rclpy.qos import QoSProfile, HistoryPolicy, ReliabilityPolicy, DurabilityPolicy
 from rclpy.executors import SingleThreadedExecutor
 
-from src.air_hockey_ros import AgentCommand, WorldState
+from air_hockey_ros.msg import AgentCommand, WorldState
 
 QUEUE_SIZE = 100
 
@@ -66,6 +66,7 @@ class AgentNode(Node):
                 self.policy = pickle.load(f)
         except Exception as e:
             raise RuntimeError(f"Failed to load policy at '{policy_path}': {e}") from e
+        self.policy.on_agent_init()
 
         self.logger = get_logger(log, team, agent_id)
 
@@ -163,9 +164,13 @@ def parse_args():
     parser.add_argument('--team', required=True, choices=['a', 'b'], help="Team this agent belongs to (A/B),"
                                                                           " use lower case (a/b)")
     parser.add_argument('--policy_path', required=True, help="Path to pickled policy object")
-    parser.add_argument('--log', action='store_true', help='log to file')
+    parser.add_argument('--log', required=False, default=False, help='log to file')
     # ros2 passes remapping args too; ignore unknowns, so we don't crash
     args, _ = parser.parse_known_args()
+    if args.log.lower() == 'true':
+        args.log = True
+    else:
+        args.log = False
     return args
 
 def main():

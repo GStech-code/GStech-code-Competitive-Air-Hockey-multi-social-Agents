@@ -6,7 +6,7 @@ LIGHT_GREY_COLOR = (240, 240, 240)
 LIGHT_BLUE_COLOR = (128, 128, 255)
 AZURE_COLOR = (0, 160, 255)
 LIGHT_RED_COLOR = (255, 80, 80)
-WARM_RED_COLOR = (255, 96, 56)
+REDDISH_ORANGE_COLOR = (255, 96, 56)
 
 class PygameView:
     def __init__(self):
@@ -31,7 +31,7 @@ class PygameView:
         self.paddle_radius = int(params.get("paddle_radius", 20))
         num_agents_team_a = params.get("num_agents_team_a", 0)
         num_agents_team_b = params.get("num_agents_team_b", 0)
-        self.colors = [AZURE_COLOR] * num_agents_team_a + [WARM_RED_COLOR] * num_agents_team_b
+        self.colors = [AZURE_COLOR] * num_agents_team_a + [REDDISH_ORANGE_COLOR] * num_agents_team_b
 
     def pump_events(self) -> bool:
         for e in pygame.event.get():

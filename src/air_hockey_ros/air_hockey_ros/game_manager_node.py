@@ -14,11 +14,11 @@ import rclpy
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, HistoryPolicy, ReliabilityPolicy, DurabilityPolicy
 from time import perf_counter
-from src.air_hockey_ros import Simulation
-from src.air_hockey_ros import get_team_policy, get_simulation
+from air_hockey_ros.simulation import Simulation
+from air_hockey_ros.registration import get_team_policy, get_simulation
 
-from src.air_hockey_ros import StartGame
-from src.air_hockey_ros import AgentCommand, WorldState, GameResult
+from air_hockey_ros.srv import StartGame
+from air_hockey_ros.msg import AgentCommand, WorldState, GameResult
 
 import importlib
 import pkgutil
@@ -93,6 +93,8 @@ class GameManagerNode(Node):
         self.logger = logging.getLogger('game_manager')
         self.logger.propagate = False
         self.logger.setLevel(logging.INFO)
+        self.log_team_a = params.pop("log_team_a", False)
+        self.log_team_b = params.pop("log_team_b", False)
         if not self.logger.handlers:  # avoid duplicate handlers on reload
             fh = logging.FileHandler(f"game_manager.log")
             fmt = logging.Formatter("%(asctime)s [%(levelname)s] %(message)s")
@@ -148,11 +150,13 @@ class GameManagerNode(Node):
 
         self.timer = self.create_timer(period, self._tick)
         self._tick_lock = threading.Lock()
+        self._commands_lock = threading.Lock()
 
         self.logger.info(f"GameManagerNode initialized with {simulation_name} simulation")
 
     def _agent_command_cb(self, msg: AgentCommand):
-        self.agent_commands[msg.agent_id] = msg
+        with self._commands_lock:
+            self.agent_commands[msg.agent_id] = msg
 
     def command_to_tuple(self, cmd):
         agent_id = cmd.agent_id
@@ -215,13 +219,13 @@ class GameManagerNode(Node):
         agents_args = [[
             "ros2", "run", "air_hockey_ros", "agent_node.py",
             "--agent_id", str(aid),
-            "--team", "a", "--log", "True",
+            "--team", "a", "--log", str(self.log_team_a),
             "--policy_path", self.agent_policy_paths[aid]
         ] for aid in agents_a]
         agents_args.extend([[
             "ros2", "run", "air_hockey_ros", "agent_node.py",
             "--agent_id", str(aid),
-            "--team", "b", "--log", "True",
+            "--team", "b", "--log", str(self.log_team_b),
             "--policy_path", self.agent_policy_paths[aid]
         ] for aid in agents_b])
 
@@ -267,8 +271,9 @@ class GameManagerNode(Node):
         call_end = False
         with self._tick_lock:
             # Apply agent commands to the simulation
-            commands = [self.command_to_tuple(cmd) for cmd in self.agent_commands.values()]
-            self.agent_commands.clear()
+            with self._commands_lock:
+                commands = [self.command_to_tuple(cmd) for cmd in self.agent_commands.values()]
+                self.agent_commands.clear()
             self.sim.apply_commands(commands)
             # Get the updated state from the simulation
             world_state = self.sim.get_world_state()

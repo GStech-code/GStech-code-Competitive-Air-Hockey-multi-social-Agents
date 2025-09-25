@@ -1,5 +1,4 @@
 from collections import deque
-import math
 
 class RollingAvgQueue:
     def __init__(self, capacity: int):

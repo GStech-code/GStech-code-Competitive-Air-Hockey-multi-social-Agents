@@ -1,6 +1,6 @@
 from typing import Tuple
 import numpy as np
-from src.air_hockey_ros import AgentPolicy
+from air_hockey_ros import AgentPolicy
 
 def norm_down_num(num):
     abs_num = np.abs(num)

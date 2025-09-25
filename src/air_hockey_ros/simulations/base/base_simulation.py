@@ -1,6 +1,6 @@
 from __future__ import annotations
 from typing import Dict, List, Tuple
-from src.air_hockey_ros import Simulation, register_simulation
+from air_hockey_ros import Simulation, register_simulation
 from .base_engine import BaseEngine
 from .world_state_view import PygameView
 

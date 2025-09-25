@@ -1,5 +1,5 @@
 from typing import List
-from src.air_hockey_ros import TeamPolicy, register_policy, AgentPolicy
+from air_hockey_ros import TeamPolicy, register_policy, AgentPolicy
 from .simple_regional_agent_policy import SimpleRegionalAgentPolicy
 from .simple_crosser_agent_policy import SimpleCrosserAgentPolicy
 

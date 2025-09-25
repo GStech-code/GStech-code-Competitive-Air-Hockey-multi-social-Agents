@@ -6,6 +6,9 @@ from .rolling_queues import RollingMinMaxQueue, RollingAvgQueue
 
 Command = Tuple[int, int, int]  # (agent_id, vx, vy)
 
+def noops():
+    pass
+
 class BaseEngine:
     width: int
     height: int
@@ -64,6 +67,9 @@ class BaseEngine:
 
         self._prev_agent_x = []
         self._prev_agent_y = []
+        self._idx_x = []
+        self._repair_x_index_func = noops
+        self._separate_agents_func = noops
 
         self.stuck_window = 1
 
@@ -101,20 +107,30 @@ class BaseEngine:
               puck_pos: Optional[Tuple[float, float]] = None,
               puck_vel: Optional[Tuple[float, float]] = None) -> None:
         # You’ll wire placements; physics doesn’t require full details here
-        n = int(num_agents_team_a) + int(num_agents_team_b)
-        self.agent_x = [0.0] * n
-        self.agent_y = [0.0] * n
-        self.agent_vx = [0.0] * n
-        self.agent_vy = [0.0] * n
+        self.num_agents = num_agents_team_a + num_agents_team_b
+        self.agent_x = [0.0] * self.num_agents
+        self.agent_y = [0.0] * self.num_agents
+        self.agent_vx = [0.0] * self.num_agents
+        self.agent_vy = [0.0] * self.num_agents
+        self._prev_agent_x = [0.0] * self.num_agents
+        self._prev_agent_y = [0.0] * self.num_agents
+        self._idx_x = list(range(self.num_agents))
+        self._idx_x.sort(key=lambda i: self.agent_x[i])
         self.agent_team = [0] * int(num_agents_team_a) + [1] * int(num_agents_team_b)
-        self.agent_last_cmd_tick = [-10**9] * n  # far in the past
+        self.agent_last_cmd_tick = [-10**9] * self.num_agents  # far in the past
         self.puck_x_history.clear_and_re_capacity(self.stuck_window)
         self.puck_y_history.clear_and_re_capacity(self.stuck_window)
         self.puck_velocity_history.clear_and_re_capacity(self.stuck_window)
 
+        if self.num_agents > 2:
+            self._repair_x_index_func = self._repair_x_index
+            self._separate_agents_func = self._separate_agents
+        else:
+            self._repair_x_index_func = noops
+            self._separate_agents_func = noops
 
         # default placements if none provided (A at 1/4 width, B at 3/4)
-        if agent_positions and len(agent_positions) == n:
+        if agent_positions and len(agent_positions) == self.num_agents:
             for i, (ax, ay) in enumerate(agent_positions):
                 self.agent_x[i] = float(ax)
                 self.agent_y[i] = float(ay)
@@ -174,7 +190,9 @@ class BaseEngine:
         """
         self._apply_command_policy()
         self._integrate_agents()
+        self._repair_x_index_func()
         self._enforce_bounds_and_halfline()
+        self._separate_agents_func()
         self._collide_puck_agents()
         self._integrate_puck()
         self._puck_walls_and_goals()
@@ -211,9 +229,8 @@ class BaseEngine:
         """
         if self.hold_last_ticks <= 0:
             return
-        n = len(self.agent_x)
         now = self.tick
-        for i in range(n):
+        for i in range(self.num_agents):
             if now - self.agent_last_cmd_tick[i] > self.hold_last_ticks:
                 # timeout -> stop (no decay for now; simple and deterministic)
                 self.agent_vx[i] = 0.0
@@ -224,11 +241,8 @@ class BaseEngine:
         Move agents by their commanded velocities scaled to pixels per tick.
         Stores previous positions for collision response (actual paddle velocity).
         """
-        n = len(self.agent_x)
-        self._prev_agent_x = [0.0] * n
-        self._prev_agent_y = [0.0] * n
 
-        for i in range(n):
+        for i in range(self.num_agents):
             self._prev_agent_x[i] = self.agent_x[i]
             self._prev_agent_y[i] = self.agent_y[i]
             self.agent_x[i] += self.agent_vx[i]
@@ -269,31 +283,26 @@ class BaseEngine:
             # "allow" and "soft": no clamp here
 
     def _collide_puck_agents(self) -> None:
-        """
-        Disc <-> Paddle collision adapted from your Disc.handle_paddle_collision:
-        - Compute normal from paddle to puck
-        - Reflect relative velocity along normal with restitution < 1
-        - Add a fraction of paddle 'actual' velocity (based on displacement this tick)
-        - Separate overlap
-        - Cap puck speed
-        - Optional tiny jitter for liveliness
-        """
         pr = self.puck_radius
         ar = self.paddle_radius
         total_r = pr + ar
+        total_r2 = total_r * total_r
 
-        # Constants ported from your Disc
         disc_mass = 1.0
         paddle_mass = 3.0
         restitution = 0.75
         velocity_transfer = 0.3
 
-        n = len(self.agent_x)
-        for i in range(n):
+        # Only nearby in X:
+        for i in self._puck_agent_candidates(range_x=total_r):
             dx = self.puck_x - self.agent_x[i]
+            if abs(dx) >= total_r:  # quick guard
+                continue
             dy = self.puck_y - self.agent_y[i]
+            if abs(dy) >= total_r:  # Y-prune
+                continue
             dist2 = dx * dx + dy * dy
-            if dist2 > (total_r * total_r):
+            if dist2 > total_r2:
                 continue
 
             # Compute normal
@@ -305,7 +314,7 @@ class BaseEngine:
                 nx = dx / dist
                 ny = dy / dist
 
-            # Paddle "actual" velocity from displacement this tick
+            # Paddle "actual" displacement this tick
             pvx = self.agent_x[i] - self._prev_agent_x[i]
             pvy = self.agent_y[i] - self._prev_agent_y[i]
 
@@ -315,22 +324,18 @@ class BaseEngine:
 
             # Relative velocity along normal
             rvn = rvx * nx + rvy * ny
-            if rvn > 0.0:
-                # Separating, no impulse
-                # Still ensure separation to avoid sticking if overlapping
-                pass
-            else:
-                # Collision impulse (disc vs heavier paddle)
+            if rvn <= 0.0:
+                # Impulse (disc lighter than paddle)
                 mass_ratio = (2.0 * paddle_mass) / (disc_mass + paddle_mass)
                 impulse = -(1.0 + restitution) * rvn * mass_ratio
                 self.puck_vx += impulse * nx
                 self.puck_vy += impulse * ny
 
-                # Add some of paddle velocity influence
+                # Paddle velocity influence
                 self.puck_vx += pvx * velocity_transfer
                 self.puck_vy += pvy * velocity_transfer
 
-            # Positional correction (separate overlap)
+            # Positional correction: move *only the puck*
             overlap = total_r - dist
             if overlap > 0.0:
                 self.puck_x += nx * (overlap + 1e-6)
@@ -339,9 +344,9 @@ class BaseEngine:
             # Cap puck speed
             speed = math.hypot(self.puck_vx, self.puck_vy)
             if speed > self.puck_max_speed:
-                scale = self.puck_max_speed / speed
-                self.puck_vx *= scale
-                self.puck_vy *= scale
+                s = self.puck_max_speed / speed
+                self.puck_vx *= s
+                self.puck_vy *= s
 
             # Tiny jitter (configurable)
             if self.jitter_enabled:
@@ -434,12 +439,138 @@ class BaseEngine:
 
     def _center_faceoff(self, direction: int = 0) -> None:
         """
-        Reset puck to center and nudge toward the side that conceded.
-        direction: +1 -> toward right, -1 -> toward left
+        Reset puck to center; if overlapping paddles, nudge away until clear.
+        direction: +1 -> toward right, -1 -> toward left, 0 -> no initial push.
         """
-        self.puck_x = self.width / 2.0
-        self.puck_y = self.height / 2.0
-        # Serve angle: keep it simple & deterministic here; jitter (if enabled) will add small variation
+        cx, cy = self.width * 0.5, self.height * 0.5
+        pr = self.puck_radius
+        ar = self.paddle_radius
+        total_r2 = (pr + ar) * (pr + ar)
+
+        # try center, then nudge away from overlaps (few tries suffice in practice)
+        for _ in range(8):
+            overlapped = False
+            for i in self._puck_agent_candidates(range_x=(pr + ar) + ar):
+                dx = cx - self.agent_x[i]
+                dy = cy - self.agent_y[i]
+                if dx * dx + dy * dy < total_r2:
+                    mag = math.hypot(dx, dy) or 1.0
+                    nud = (pr + ar) - mag + 1.0
+                    cx += (dx / mag) * nud
+                    cy += (dy / mag) * nud
+                    overlapped = True
+            if not overlapped:
+                break
+            # clamp inside rink
+            cx = min(max(pr, cx), self.width - pr)
+            cy = min(max(pr, cy), self.height - pr)
+
+        self.puck_x, self.puck_y = cx, cy
         base_speed = 3.0
         self.puck_vx = base_speed * float(direction)
         self.puck_vy = 0.0
+
+    def _repair_x_index(self) -> None:
+        """Repair nearly-sorted index by adjacent swaps (insertion-like)."""
+        idx = self._idx_x
+        for a in range(1, len(idx)):
+            j = a
+            while j > 0 and self.agent_x[idx[j]] < self.agent_x[idx[j - 1]]:
+                idx[j], idx[j - 1] = idx[j - 1], idx[j]
+                j -= 1
+
+    def _separate_agents(self) -> None:
+        """
+        Sweep-and-prune with forward propagation:
+        Resolves chains in one pass without a second global iteration.
+        """
+        r = self.paddle_radius
+        min_d = 2.0 * r
+        min_d2 = min_d * min_d
+        eps = 1e-6
+        idx = self._idx_x  # repaired earlier
+
+        for a in range(self.num_agents - 1):
+            i = idx[a]
+            xi = self.agent_x[i]
+            yi = self.agent_y[i]
+            for b in range(a + 1, self.num_agents):
+                j = idx[b]
+                dx = self.agent_x[j] - xi
+                if dx >= min_d:
+                    break  # further ones are even farther in x
+                dy = self.agent_y[j] - yi
+                if abs(dy) >= min_d:
+                    continue  # cheap Y-prune
+                d2 = dx * dx + dy * dy
+                if d2 >= min_d2:
+                    continue
+
+                # overlap -> compute normal and correction
+                if d2 == 0.0:
+                    nx, ny = 1.0, 0.0
+                    overlap = min_d
+                else:
+                    d = math.sqrt(d2)
+                    nx, ny = dx / d, dy / d
+                    overlap = min_d - d
+
+                half = 0.5 * (overlap + eps)
+
+                # move i backward, j forward along contact normal
+                self.agent_x[i] -= nx * half
+                self.agent_y[i] -= ny * half
+                self.agent_x[j] += nx * half
+                self.agent_y[j] += ny * half
+
+                # ---- forward chain propagation ----
+                kpos = b  # position of 'right' item in idx
+                while kpos < self.num_agents - 1:
+                    k = idx[kpos]
+                    k1 = idx[kpos + 1]
+                    dx = self.agent_x[k1] - self.agent_x[k]
+                    if dx >= min_d: break
+                    dy = self.agent_y[k1] - self.agent_y[k]
+                    if abs(dy) >= min_d: break
+                    d2 = dx * dx + dy * dy
+                    if d2 >= min_d2: break
+
+                    if d2 == 0.0:
+                        nx2, ny2 = 1.0, 0.0
+                        need = min_d
+                    else:
+                        d = math.sqrt(d2)
+                        nx2, ny2 = dx / d, dy / d
+                        need = (min_d - d) + eps
+
+                    # push only the 'right' paddle forward along normal
+                    self.agent_x[k1] += nx2 * need
+                    self.agent_y[k1] += ny2 * need
+                    kpos += 1
+                # -----------------------------------
+
+                # refresh local xi/yi (rarely needed, but keeps numerics tight)
+                xi = self.agent_x[i]
+                yi = self.agent_y[i]
+
+    def _puck_agent_candidates(self, range_x: float):
+        """Return agent indices with |x - puck_x| < range_x using the sorted index."""
+        idx = self._idx_x
+        px = self.puck_x
+
+        # lower_bound(px - range_x)
+        lo, hi = 0, self.num_agents
+        left = px - range_x
+        right = px + range_x
+        while lo < hi:
+            mid = (lo + hi) // 2
+            if self.agent_x[idx[mid]] < left:
+                lo = mid + 1
+            else:
+                hi = mid
+
+        out = []
+        while lo < self.num_agents and self.agent_x[idx[lo]] < right:
+            out.append(idx[lo])
+            lo += 1
+        return out

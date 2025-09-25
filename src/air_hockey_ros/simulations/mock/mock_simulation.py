@@ -1,5 +1,6 @@
 from typing import List, Dict, Tuple
-from src.air_hockey_ros import Simulation, register_simulation
+import math
+from air_hockey_ros import Simulation, register_simulation
 
 @register_simulation('mock')
 class MockSimulation(Simulation):
