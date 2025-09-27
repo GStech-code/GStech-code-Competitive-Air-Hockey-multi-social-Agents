@@ -12,14 +12,15 @@ def noops():
 class BaseEngine:
     width: int
     height: int
+    half_line_pos: float
     tick_period: float  # seconds per tick (GameManager targets ~1/60)
     unit_speed_px: float  # maps int command (e.g., 1) to pixels/tick
     paddle_radius: float
     puck_radius: float
     friction_per_tick: float  # 1.0 = none
     bounce_damping: float
-    halfline_policy: str  # "allow" | "clamp" | "soft"
-    goal_gap_half: float  # scoring: vertical side gap half-height
+    goal_gap_min: float  # scoring: starting of the vertical gap height
+    goal_gap_max: float  # scoring: ending of the vertical gap height
     goal_semicircle_radius: float  # optional: for paddle-in-goal flags (no scoring effect now)
     jitter_enabled: bool
     jitter_seed: Optional[int]
@@ -83,14 +84,20 @@ class BaseEngine:
     def configure(self, **params) -> None:
         self.width = int(params.get("width", 800))
         self.height = int(params.get("height", 600))
-        self.step_size = float(params.get("step_size", 1.0 / 60.0))
+        self.half_line_pos = self.width / 2
         self.unit_speed_px = float(params.get("unit_speed_px", 4.0))
         self.paddle_radius = float(params.get("paddle_radius", 20.0))
         self.puck_radius = float(params.get("puck_radius", 12.0))
         self.friction_per_tick = float(params.get("friction_per_tick", 1.0))
         self.bounce_damping = float(params.get("bounce_damping", 1.0))
-        self.halfline_policy = str(params.get("halfline_policy", "allow"))  # "allow"|"clamp"|"soft"
-        self.goal_gap_half = float(params.get("goal_gap_half", 120.0))
+        goal_gap = float(params.get("goal_gap", 0))
+        if goal_gap == 0:
+            goal_gap_half = self.height / 5
+        else:
+            goal_gap_half = goal_gap / 2
+        height_center = self.height / 2
+        self.goal_gap_min = height_center - goal_gap_half
+        self.goal_gap_max = height_center + goal_gap_half
         self.goal_semicircle_radius = float(params.get("goal_semicircle_radius", self.width / 10.0))
         self.jitter_enabled = bool(params.get("jitter_enabled", True))
         self.jitter_seed = params.get("jitter_seed", None)
@@ -258,8 +265,6 @@ class BaseEngine:
         r = self.paddle_radius
         w = self.width
         h = self.height
-        mid = w / 2.0
-        policy = self.halfline_policy
 
         for i in range(len(self.agent_x)):
             # Walls (full rink)
@@ -272,15 +277,6 @@ class BaseEngine:
                 self.agent_x[i] = r
             elif self.agent_x[i] > w - r:
                 self.agent_x[i] = w - r
-
-            if policy == "clamp":
-                if self.agent_team[i] == 0:  # Team A (left)
-                    if self.agent_x[i] > mid - r:
-                        self.agent_x[i] = mid - r
-                else:  # Team B (right)
-                    if self.agent_x[i] < mid + r:
-                        self.agent_x[i] = mid + r
-            # "allow" and "soft": no clamp here
 
     def _collide_puck_agents(self) -> None:
         pr = self.puck_radius
@@ -384,9 +380,7 @@ class BaseEngine:
         # Left boundary
         if self.puck_x < r:
             # scoring gap on the left side refers to the *left goal mouth*
-            gap_lo = (self.height / 2.0) - self.goal_gap_half
-            gap_hi = (self.height / 2.0) + self.goal_gap_half
-            if gap_lo <= self.puck_y <= gap_hi:
+            if self.goal_gap_min <= self.puck_y <= self.goal_gap_max:
                 # Team B scores (right team)
                 self.team_b_score += 1
                 self._center_faceoff(direction=+1)
@@ -397,9 +391,7 @@ class BaseEngine:
 
         # Right boundary
         if self.puck_x > self.width - r:
-            gap_lo = (self.height / 2.0) - self.goal_gap_half
-            gap_hi = (self.height / 2.0) + self.goal_gap_half
-            if gap_lo <= self.puck_y <= gap_hi:
+            if self.goal_gap_min <= self.puck_y <= self.goal_gap_max:
                 # Team A scores (left team)
                 self.team_a_score += 1
                 self._center_faceoff(direction=-1)

@@ -66,7 +66,6 @@ class AgentNode(Node):
                 self.policy = pickle.load(f)
         except Exception as e:
             raise RuntimeError(f"Failed to load policy at '{policy_path}': {e}") from e
-        self.policy.on_agent_init()
 
         self.logger = get_logger(log, team, agent_id)
 
@@ -99,6 +98,7 @@ class AgentNode(Node):
         # Worker thread: latest-only, worker-when-free
         self._worker = threading.Thread(target=self._worker_loop, daemon=True)
         self._worker.start()
+        self.policy.on_agent_init()
 
         self.logger.info("Agent node initiated.")
 
@@ -154,8 +154,14 @@ class AgentNode(Node):
     def destroy_node(self):
         self._stop = True
         self._have_new.set()  # unblock wait()
-        if getattr(self, "_worker", None) and self._worker.is_alive():
+        if self._worker.is_alive():
             self._worker.join(timeout=1.0)
+        # Cleanly stop policy threads (idempotent)
+        try:
+            self.policy.on_agent_close()
+        except Exception:
+            pass
+
         super().destroy_node()
 
 def parse_args():

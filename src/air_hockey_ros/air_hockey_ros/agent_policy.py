@@ -11,7 +11,16 @@ class AgentPolicy:
         """
         Lets the policy know the agent has re-pickled and dependency injected it.
         The game is about to start.
-        Useful when using threading.
+        Useful when using threading or external resources.
+        """
+        pass
+
+    def on_agent_close(self):
+        """
+        Lets the policy know the agent node has closed.
+        If policy implements threading / multiprocessing or any other
+        resource management that needs to close when game ends, implement
+        your closing method here.
         """
         pass
 

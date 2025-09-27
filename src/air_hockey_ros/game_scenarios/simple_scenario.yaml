@@ -3,7 +3,8 @@ game_duration: 300
 table:
   width: 800
   height: 600
-  goal_gap: 10
+  goal_gap: 240
+  goal_offset: 40
 paddle:
   unit_speed_px: 4
   paddle_radius: 20

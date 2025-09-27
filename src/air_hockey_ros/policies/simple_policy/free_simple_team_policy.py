@@ -9,13 +9,13 @@ class SimpleTeamPolicy(TeamPolicy):
         super().__init__(**params)
         self.width = params['width']
         self.height = params['height']
-        self.goal_gap = params.get('goal_gap', 10)
+        self.goal_offset = params.get('goal_offset', 1)
         self.puck_radius = params.get('puck_radius', 1)
         self.paddle_radius = params.get('paddle_radius', 1)
         self.unit_speed_px = params.get('unit_speed_px', 4.0)
 
     def get_policies(self) -> List[AgentPolicy]:
-        x_min_region = self.goal_gap + self.paddle_radius
+        x_min_region = self.goal_offset + 2 * self.paddle_radius
         x_max_region = self.width // 2 - self.paddle_radius
         y_min_region = self.paddle_radius
         y_max_region = self.height - self.paddle_radius
