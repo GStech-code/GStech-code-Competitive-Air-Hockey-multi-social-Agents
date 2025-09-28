@@ -20,20 +20,24 @@ class PygameView:
             self._running = True
         self.width = int(params.get("width", 800))
         self.height = int(params.get("height", 800))
+        self.height_center = self.height / 2
         self.title = str(params.get("title", "Air Hockey"))
         self.screen = pygame.display.set_mode((self.width, self.height))
         pygame.display.set_caption(self.title)
         self.hz = int(params.get("hz", 60))
-        self.midx = self.width // 2
+        self.width_center = self.width / 2
         goal_gap = float(params.get("goal_gap", 0))
         if goal_gap == 0:
             goal_gap_half = self.height / 5
         else:
             goal_gap_half = goal_gap / 2
-        height_center = self.height / 2
-        self.goal_gap_min = height_center - goal_gap_half
-        self.goal_gap_max = height_center + goal_gap_half
+        self.goal_gap_min = self.height_center - goal_gap_half
+        self.goal_gap_max = self.height_center + goal_gap_half
+        self.goal_offset = int(params.get("goal_offset", 40))
+        self.offset_outline_w = 2
         self.puck_radius = int(params.get("puck_radius", 12))
+        self.x_inner_R = self.width - 1 - self.goal_offset
+        self.center_circle_radius = self.puck_radius + 5
         self.paddle_radius = int(params.get("paddle_radius", 20))
         num_agents_team_a = params.get("num_agents_team_a", 0)
         num_agents_team_b = params.get("num_agents_team_b", 0)
@@ -55,7 +59,7 @@ class PygameView:
         s.fill(BLACK_COLOR)
 
         # center line
-        pygame.draw.line(s, WHITE_COLOR, (self.midx, 0), (self.midx, self.height), 2)
+        pygame.draw.line(s, WHITE_COLOR, (self.width_center, 0), (self.width_center, self.height), 2)
 
         # goals (vertical side gaps)
         # left posts
@@ -64,6 +68,22 @@ class PygameView:
         # right posts
         pygame.draw.line(s, LIGHT_RED_COLOR, (self.width - 1, 0), (self.width - 1, self.goal_gap_min), 4)
         pygame.draw.line(s, LIGHT_RED_COLOR, (self.width - 1, self.goal_gap_max), (self.width - 1, self.height), 4)
+
+        pygame.draw.circle(s, WHITE_COLOR, (self.width_center, self.height_center), self.center_circle_radius, 1)
+
+        pygame.draw.line(s, WHITE_COLOR, (0, self.goal_gap_min), (self.goal_offset, self.goal_gap_min),
+                         self.offset_outline_w)  # bottom
+        pygame.draw.line(s, WHITE_COLOR, (0, self.goal_gap_max), (self.goal_offset, self.goal_gap_max),
+                         self.offset_outline_w)  # top
+        pygame.draw.line(s, WHITE_COLOR, (self.goal_offset, self.goal_gap_min), (self.goal_offset, self.goal_gap_max),
+                         self.offset_outline_w)  # inner vertical
+
+        pygame.draw.line(s, WHITE_COLOR, (self.x_inner_R, self.goal_gap_min), (self.width - 1, self.goal_gap_min),
+                         self.offset_outline_w)  # top
+        pygame.draw.line(s, WHITE_COLOR, (self.x_inner_R, self.goal_gap_max), (self.width - 1, self.goal_gap_max),
+                         self.offset_outline_w)  # bottom
+        pygame.draw.line(s, WHITE_COLOR, (self.x_inner_R, self.goal_gap_min), (self.x_inner_R, self.goal_gap_max),
+                         self.offset_outline_w)  # inner vertical
 
         # puck
         px, py = int(world_state["puck_x"]), int(world_state["puck_y"])

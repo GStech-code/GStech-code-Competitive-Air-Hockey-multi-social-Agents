@@ -18,12 +18,12 @@ class SimpleTeamPolicy(TeamPolicy):
     def get_policies(self) -> List[AgentPolicy]:
         if len(self.agents_ids) == 0:
             return []
-        x_offset = self.goal_offset + 2 * self.paddle_radius
+        x_offset = self.goal_offset + self.paddle_radius
         x_min_region = x_offset + 2 * self.paddle_radius
         x_max_region = self.width//2 - self.paddle_radius
         y_center = self.height // 2
-        y_min_offset = y_center + self.paddle_radius - (self.goal_offset // 2)
-        y_max_offset = y_center - self.paddle_radius + (self.goal_offset // 2)
+        y_min_offset = y_center + self.paddle_radius - (self.goal_gap / 2)
+        y_max_offset = y_center - self.paddle_radius + (self.goal_gap / 2)
         y_min_region = self.paddle_radius
         y_max_region = self.height - self.paddle_radius
         if len(self.agents_ids) == 1:
@@ -39,5 +39,5 @@ class SimpleTeamPolicy(TeamPolicy):
                                            x_max=x_max_region, y_max=y_max, unit_speed_px=self.unit_speed_px,
                                            puck_radius=self.puck_radius, paddle_radius=self.paddle_radius)
                  for i, (y_min, y_max) in enumerate(zip(agent_min_ys, agent_max_ys))]
-                + [SimpleCrosserAgentPolicy(agent_id=self.agents_ids[-1],
-                                            x_cross=x_offset, y_min=y_min_offset, y_max=y_max_offset)])
+                + [SimpleCrosserAgentPolicy(agent_id=self.agents_ids[-1], x_cross=x_offset,
+                                            y_min=y_min_offset, y_max=y_max_offset, unit_speed_px=self.unit_speed_px)])
