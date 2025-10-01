@@ -10,3 +10,4 @@ paddle:
   paddle_radius: 20
 puck:
   puck_radius: 12
+  puck_max_speed: 6
