@@ -49,7 +49,7 @@ def _build_actions(context, *args, **kwargs):
     rules_dict = _flatten_rules(scn)
     rules_json = json.dumps(rules_dict, separators=(",", ":"))
 
-    team_a = "free_simple"
+    team_a = "neural"
     team_b = "simple"
     num_a = 2
     num_b = 2
@@ -84,7 +84,7 @@ def _build_actions(context, *args, **kwargs):
             executable="game_manager_node.py",
             name="game_manager",
             output="screen",
-            arguments=["base", "view::=true", "log_team_a::=false", "log_team_b::=false"],  # alternative: ["mock", "use_physics::=true"]
+            arguments=["base", "view::=true", "log_team_a::=true", "log_team_b::=false"],  # alternative: ["mock", "use_physics::=true"]
         )
     )
 

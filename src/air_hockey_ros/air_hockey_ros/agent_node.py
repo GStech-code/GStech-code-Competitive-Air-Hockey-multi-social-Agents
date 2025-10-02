@@ -34,11 +34,8 @@ def world_state_to_dict(msg) -> Dict:
         "puck_vx": msg.puck_vx,
         "puck_vy": msg.puck_vy,
 
-        # ensure plain Python lists (not numpy/array.array) for the sim
         "agent_x": msg.agent_x,
         "agent_y": msg.agent_y,
-        "agent_vx": msg.agent_vx,
-        "agent_vy": msg.agent_vy,
     }
     return d
 

@@ -1,6 +1,6 @@
 from typing import List
 from air_hockey_ros import TeamPolicy, register_policy, AgentPolicy
-from .neural_agent_policy import NerualAgentPolicy
+from .neural_agent_policy import NeuralAgentPolicy
 import torch
 
 @register_policy('neural')
@@ -11,6 +11,7 @@ class SimpleTeamPolicy(TeamPolicy):
             self.device = 'cuda'
         else:
             self.device = 'cpu'
+        self.device = 'cuda'
         self.width = params['width']
         self.height = params['height']
         puck_max_speed = float(params.get('puck_max_speed', 4.0))
@@ -27,6 +28,6 @@ class SimpleTeamPolicy(TeamPolicy):
 
 
     def get_policies(self) -> List[AgentPolicy]:
-        return [NerualAgentPolicy(agent_id=agent_id, device=self.device, width=self.width, height=self.height,
+        return [NeuralAgentPolicy(agent_id=agent_id, device=self.device, width=self.width, height=self.height,
                                   max_speed=self.max_speed, teammate_ids=teammates, opponent_ids=self.opponents_ids)
                 for agent_id, teammates in zip(self.agents_ids, self.teammates_ids)]

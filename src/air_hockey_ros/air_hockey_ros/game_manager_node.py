@@ -310,8 +310,7 @@ class GameManagerNode(Node):
                              puck_vy=-world_state['puck_vy'],
                              agent_x=[self.sim_width - x for x in world_state['agent_x']],
                              agent_y=[self.sim_height - y for y in world_state['agent_y']],
-                             agent_vx=[-vx for vx in world_state['agent_vx']],
-                             agent_vy=[-vy for vy in world_state['agent_vy']], )
+                             )
         return state_a, state_b
 
 def _parse_sim_args(argv):

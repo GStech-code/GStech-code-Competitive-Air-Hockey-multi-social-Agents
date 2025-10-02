@@ -220,8 +220,6 @@ class BaseEngine:
             "puck_vy": self.puck_vy,
             "agent_x": self.agent_x[:],
             "agent_y": self.agent_y[:],
-            "agent_vx": self.agent_vx[:],
-            "agent_vy": self.agent_vy[:],
         }
 
     def get_scores(self) -> Dict:
