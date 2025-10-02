@@ -14,7 +14,7 @@ class PerAgentEncoder(nn.Module):
         [ dx_self, dy_self, dx_puck, dy_puck, is_teammate(0/1) ]
     Output: 16-dim embedding.
     """
-    def __init__(self, in_dim: int = 5, hid: int = 32, out_dim: int = 16):
+    def __init__(self, in_dim: int = 5, hid: int = 32, out_dim: int = 32):
         super().__init__()
         self.net = nn.Sequential(
             nn.Linear(in_dim, hid),
@@ -63,7 +63,7 @@ class MultiAgentPaddleNet(nn.Module):
         number_opponents: int,
         device: str = "cpu",
         per_agent_dim: int = 5,
-        per_agent_embed: int = 16,
+        per_agent_embed: int = 32,
         head_hidden1: int = 128,
         head_hidden2: int = 64,
     ):
@@ -77,7 +77,7 @@ class MultiAgentPaddleNet(nn.Module):
                                    hid=per_agent_embed,
                                    out_dim=per_agent_embed)
 
-        # Policy head: [self(2) + puck(4) + team(16) + opp(16)] = 38
+        # Policy head: [self(2) + puck(4) + team(32) + opp(32)] = 70
         head_in = 2 + 4 + per_agent_embed + per_agent_embed
         self.head = nn.Sequential(
             nn.Linear(head_in, head_hidden1),
