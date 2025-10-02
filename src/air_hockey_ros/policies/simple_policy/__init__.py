@@ -1,0 +1,3 @@
+from .simple_team_policy import SimpleTeamPolicy
+from .simple_regional_agent_policy import SimpleRegionalAgentPolicy
+from .simple_crosser_agent_policy import SimpleCrosserAgentPolicy
