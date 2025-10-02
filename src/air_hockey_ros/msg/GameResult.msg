@@ -1,3 +1,0 @@
-int32 team_a_score
-int32 team_b_score
-string winner

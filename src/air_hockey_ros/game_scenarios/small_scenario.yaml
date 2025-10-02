@@ -1,0 +1,13 @@
+name: small_scenario
+game_duration: 60
+table:
+  width: 200
+  height: 100
+  goal_gap: 40
+  goal_offset: 10
+paddle:
+  unit_speed_px: 2
+  paddle_radius: 8
+puck:
+  puck_radius: 6
+  puck_max_speed: 3
