@@ -1,0 +1,26 @@
+# PPO Training Configuration
+total_timesteps: 1000000
+n_steps: 2048
+batch_size: 64
+n_epochs: 10
+learning_rate: 0.0003
+
+gamma: 0.99
+gae_lambda: 0.95
+clip_range: 0.2
+clip_range_vf: null
+ent_coef: 0.01
+vf_coef: 0.5
+max_grad_norm: 0.5
+
+n_envs: 1
+num_agents_team_a: 2
+num_agents_team_b: 2
+
+device: "cpu"
+hidden_dim: 128
+
+log_interval: 10
+save_interval: 100
+checkpoint_dir: "checkpoints"
+log_dir: "logs"
