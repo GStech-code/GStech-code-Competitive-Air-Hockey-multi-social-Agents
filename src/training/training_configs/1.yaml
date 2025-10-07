@@ -4,12 +4,12 @@ lr: 0.001
 gamma: 0.99
 
 # Episode/game limits (applied unless a game overrides)
-steps_per_episode: 10
+steps_per_episode: 1800
 goal_limit: 10
 
 # Where to store RLlib checkpoints
 output_dir: ./checkpoints
-checkpoint_every: 1800
+checkpoint_every: 10
 
 # Optional initialization for Team A
 init_teamA:
