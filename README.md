@@ -70,3 +70,31 @@ Example command:
 ```
 python replay.py --log game_logs/game_log_1.log --scenario src/air_hockey_ros/game_scenarios/simple_scenario.yaml --hz 60
 ```
+
+## 🤖 Training Neural Network Agents
+
+This project includes PPO (Proximal Policy Optimization) training for neural network agents.
+
+### Quick Start
+```bash
+# Install training dependencies
+pip install -r requirements_ppo.txt
+
+# Run interactive training menu
+chmod +x quickstart.sh
+./quickstart.sh
+```
+
+### Manual Training
+```bash
+# Train agents
+python training/train_ppo.py --config config/ppo_config.yaml
+
+# Test trained policy
+python training/test_policy.py --checkpoint checkpoints/ppo_checkpoint_1000.pt --visualize
+
+# Convert for ROS deployment
+python training/convert_ppo_to_ros.py --checkpoint checkpoints/ppo_checkpoint_1000.pt --output policies/trained
+```
+
+For detailed training documentation, see [TRAINING.md](TRAINING.md)

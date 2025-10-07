@@ -1,0 +1,32 @@
+# PPO Training artifacts
+checkpoints/*.pt
+checkpoints/*.pth
+!checkpoints/.gitkeep
+
+logs/*.log
+logs/*.txt
+!logs/.gitkeep
+
+results/*.json
+results/*.csv
+!results/.gitkeep
+
+# Python cache
+training/__pycache__/
+training/utils/__pycache__/
+*.pyc
+*.pyo
+
+# Temporary files
+*.swp
+*.swo
+*~
+
+# Model files (large)
+*.pkl
+policies/trained_ppo/*.pkl
+
+# Virtual environment (if created in project)
+.venv/
+venv/
+env/
