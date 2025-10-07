@@ -2,8 +2,6 @@
 from typing import List, Dict, Any, Tuple
 from pathlib import Path
 import json, yaml
-import logging
-#logging.basicConfig(level=logging.DEBUG)
 
 from launch import LaunchDescription
 from launch.actions import (

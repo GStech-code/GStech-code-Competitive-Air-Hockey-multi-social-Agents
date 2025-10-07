@@ -50,7 +50,7 @@ class NeuralAgentPolicy(AgentPolicy):
         self.O = len(self.opponent_ids)
 
         # Masks are all ones if lists are always filled (fixed size)
-        self.opp_mask_const  = np.ones((self.O,), dtype=np.float32)
+        self.opp_mask_const = np.ones((self.O,), dtype=np.float32)
 
         # Constant teammate/opponent flag values for the 5th feature
         self._tm_flag = 1.0
@@ -73,10 +73,12 @@ class NeuralAgentPolicy(AgentPolicy):
           - puck_vy: float
         """
         # Build structured features using precomputed constants / indices
-        self_xy, puck_xyvy, team_feats, opp_feats  = self._build_struct(world_state)
+        self_xy, puck_xyvy, team_feats, opp_feats = self._build_struct(world_state)
 
         # Forward
         dx_f, dy_f = self.net.get_action_struct(self_xy, puck_xyvy, team_feats, opp_feats)
+        if self_xy[0] >= 0.5:
+            dx_f = -1
 
         # Always discrete output
         return _to_discrete(dx_f, dy_f, self.deadzone)
