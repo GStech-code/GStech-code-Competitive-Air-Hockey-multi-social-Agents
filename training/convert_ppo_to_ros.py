@@ -1,298 +1,298 @@
+#!/usr/bin/env python3
 """
-Convert trained PPO model to ROS-compatible policy format
-
-This script extracts the trained actor network from PPO checkpoints
-and creates pickle files compatible with your ROS agent nodes.
-
-Usage:
-    python convert_ppo_to_ros.py --checkpoint checkpoints/ppo_checkpoint_1000.pt \
-                                  --output policies/trained_ppo.pkl \
-                                  --num-agents 2
+Convert PPO checkpoint to ROS-compatible format
 """
 
-import argparse
-import pickle
-import torch
-import numpy as np
-from pathlib import Path
-from typing import List
-
-# Add project to path
+import os
 import sys
-sys.path.insert(0, str(Path(__file__).parent.parent / "src"))  # Go up one level to project root
+import json
+import argparse
+from pathlib import Path
+from typing import Dict, Any, Optional, Tuple
 
-from air_hockey_ros import AgentPolicy, TeamPolicy, register_policy
-from air_hockey_ros.policies.neural_network_policy.multiagent_paddle_net import MultiAgentPaddleNet
+import torch
+import torch.nn as nn
+import numpy as np
 
+# Fix import path - add parent directory to sys.path if running as script
+if __name__ == "__main__":
+    # Add parent directory to path to enable imports
+    parent_dir = Path(__file__).resolve().parent.parent
+    if str(parent_dir) not in sys.path:
+        sys.path.insert(0, str(parent_dir))
 
-class PPOAgentPolicy(AgentPolicy):
-    """ROS-compatible policy using trained PPO actor"""
+# Now import from training module
+try:
+    from training.train_ppo import ActorCritic, PPOConfig, AirHockeyEnv
+except ImportError:
+    # If that fails, try direct import (when running from training directory)
+    from train_ppo import ActorCritic, PPOConfig, AirHockeyEnv
+
+class PPOAgentPolicy:
+    """Wrapper for PPO policy to work with ROS agent"""
     
-    def __init__(self, agent_id: int, ppo_actor_state: dict, 
-                 width: float, height: float, max_speed: float,
-                 teammate_ids: List[int], opponent_ids: List[int],
-                 device: str = "cpu"):
-        super().__init__(agent_id)
+    def __init__(self, checkpoint_path: str, device: str = "cpu"):
+        """Initialize policy from checkpoint
         
-        # Store configuration
-        self.agent_id = int(agent_id)
-        self.inv_w = 1.0 / float(width)
-        self.inv_h = 1.0 / float(height)
-        self.inv_v = 1.0 / float(max_speed)
-        self.teammate_ids = list(teammate_ids)
-        self.opponent_ids = list(opponent_ids)
+        Args:
+            checkpoint_path: Path to PPO checkpoint
+            device: Device to run on (cpu/cuda)
+        """
         self.device = torch.device(device)
+        self.checkpoint_path = checkpoint_path
+        self.network = None
         
-        # Create actor network from PPO checkpoint
-        self.actor_net = self._create_actor_from_ppo(ppo_actor_state)
-        self.actor_net.to(self.device)
-        self.actor_net.eval()
-        
-    def _create_actor_from_ppo(self, state_dict: dict):
-        """Extract actor network from PPO checkpoint"""
-        import torch.nn as nn
-        
-        # Reconstruct actor from state dict
-        # Assuming PPO used similar architecture
-        obs_dim = self._get_obs_dim()
-        hidden_dim = 128  # Match PPO config
-        
-        actor = nn.Sequential(
-            nn.Linear(obs_dim, hidden_dim),
-            nn.Tanh(),
-            nn.Linear(hidden_dim, hidden_dim),
-            nn.Tanh(),
-            nn.Linear(hidden_dim, hidden_dim // 2),
-            nn.Tanh(),
-            nn.Linear(hidden_dim // 2, 2),
-        )
-        
-        # Load weights (filter only actor weights)
-        actor_weights = {
-            k.replace('shared_net.', '').replace('actor_mean.', ''): v
-            for k, v in state_dict.items()
-            if 'shared_net' in k or 'actor_mean' in k
-        }
-        
-        # Map to sequential layers
-        layer_mapping = {
-            '0.weight': 'shared_net.0.weight',
-            '0.bias': 'shared_net.0.bias',
-            '1.weight': 'shared_net.2.weight',
-            '1.bias': 'shared_net.2.bias',
-            '2.weight': 'actor_mean.0.weight',
-            '2.bias': 'actor_mean.0.bias',
-            '3.weight': 'actor_mean.2.weight',
-            '3.bias': 'actor_mean.2.bias',
-        }
-        
-        new_state_dict = {}
-        for new_key, old_key in layer_mapping.items():
-            if old_key in state_dict:
-                new_state_dict[new_key] = state_dict[old_key]
-        
-        actor.load_state_dict(new_state_dict, strict=False)
-        return actor
-        
-    def _get_obs_dim(self):
-        """Calculate observation dimension"""
-        num_teammates = len(self.teammate_ids)
-        num_opponents = len(self.opponent_ids)
-        return 2 + 4 + num_teammates * 5 + num_opponents * 5
+        # Load the network from checkpoint
+        self._load_from_checkpoint(checkpoint_path)
     
-    def update(self, world_state: dict) -> tuple[int, int]:
-        """Get action from trained policy"""
-        # Build observation
-        obs = self._build_observation(world_state)
+    def _load_from_checkpoint(self, checkpoint_path: str):
+        """Load network from checkpoint using actual classes"""
+        print(f"Loading checkpoint from {checkpoint_path}...")
+        # PyTorch 2.6+ requires weights_only=False for custom classes
+        checkpoint = torch.load(checkpoint_path, map_location=self.device, weights_only=False)
         
-        # Get action from network
+        # Get the state dict - it's stored as 'model_state_dict' in this checkpoint
+        state_dict = checkpoint.get('model_state_dict', checkpoint.get('network_state_dict', checkpoint.get('state_dict', checkpoint)))
+        
+        # Infer dimensions from the saved network state
+        print("Inferring network dimensions from checkpoint...")
+        
+        # Infer obs_dim from first layer of shared_net
+        if 'shared_net.0.weight' in state_dict:
+            obs_dim = state_dict['shared_net.0.weight'].shape[1]
+            hidden_dim = state_dict['shared_net.0.weight'].shape[0]
+        else:
+            raise ValueError("Could not infer dimensions from checkpoint")
+        
+        # Infer act_dim from actor_mean output layer  
+        if 'actor_mean.2.weight' in state_dict:
+            act_dim = state_dict['actor_mean.2.weight'].shape[0]
+        elif 'actor_mean.1.weight' in state_dict:
+            act_dim = state_dict['actor_mean.1.weight'].shape[0]
+        else:
+            raise ValueError("Could not infer action dimension from checkpoint")
+        
+        print(f"  Inferred: obs_dim={obs_dim}, act_dim={act_dim}, hidden_dim={hidden_dim}")
+        
+        # Get config from checkpoint or create default
+        if 'config' in checkpoint:
+            config = checkpoint['config']
+            print("  Using config from checkpoint")
+        else:
+            config = PPOConfig()
+            config.hidden_dim = hidden_dim
+            print("  Using default config with inferred hidden_dim")
+        
+        # Define scenario parameters (same as in train_ppo.py main function)
+        scenario_params = {
+            'width': 800,
+            'height': 600,
+            'goal_gap': 240,
+            'goal_offset': 40,
+            'unit_speed_px': 4,
+            'paddle_radius': 20,
+            'puck_radius': 12,
+            'puck_max_speed': 6,
+        }
+        
+        # Create actual AirHockeyEnv with config and scenario_params
+        env = AirHockeyEnv(config, scenario_params)
+        print(f"  Created AirHockeyEnv with obs_dim={env.obs_dim}, action_dim={env.action_dim}")
+        
+        # Initialize the network with config and env
+        self.network = ActorCritic(config, env)
+        
+        # Load the state dict
+        self.network.load_state_dict(state_dict)
+        self.network.to(self.device)
+        self.network.eval()
+        
+        print("Successfully loaded network from checkpoint")
+    
+    def get_action(self, obs: np.ndarray) -> np.ndarray:
+        """Get action from observation
+        
+        Args:
+            obs: Observation array
+            
+        Returns:
+            Action array
+        """
         with torch.no_grad():
             obs_tensor = torch.FloatTensor(obs).unsqueeze(0).to(self.device)
-            action = self.actor_net(obs_tensor)
-            action = torch.tanh(action)  # Ensure in [-1, 1]
-            action = action.squeeze(0).cpu().numpy()
-        
-        # Discretize to {-1, 0, 1}
-        return self._discretize(action[0]), self._discretize(action[1])
+            action_mean, _ = self.network(obs_tensor)
+            action = action_mean.squeeze(0).cpu().numpy()
+            
+        return action
     
-    def _discretize(self, val: float, threshold: float = 0.33) -> int:
-        """Convert continuous action to discrete"""
-        if val > threshold:
-            return 1
-        elif val < -threshold:
-            return -1
-        return 0
-    
-    def _build_observation(self, ws: dict) -> np.ndarray:
-        """Build observation vector from world state"""
-        # Normalize positions
-        ax = [x * self.inv_w for x in ws["agent_x"]]
-        ay = [y * self.inv_h for y in ws["agent_y"]]
-        px = ws["puck_x"] * self.inv_w
-        py = ws["puck_y"] * self.inv_h
-        pvx = ws["puck_vx"] * self.inv_v
-        pvy = ws["puck_vy"] * self.inv_v
+    def get_actions_batch(self, obs_batch: np.ndarray) -> np.ndarray:
+        """Get actions for batch of observations
         
-        obs = []
-        
-        # Self position
-        obs.extend([ax[self.agent_id], ay[self.agent_id]])
-        
-        # Puck state
-        obs.extend([px, py, pvx, pvy])
-        
-        # Teammate features
-        for j in self.teammate_ids:
-            obs.extend([
-                ax[j] - ax[self.agent_id],  # dx_self
-                ay[j] - ay[self.agent_id],  # dy_self
-                ax[j] - px,                 # dx_puck
-                ay[j] - py,                 # dy_puck
-                1.0                         # is_teammate
-            ])
-        
-        # Opponent features
-        for j in self.opponent_ids:
-            obs.extend([
-                ax[j] - ax[self.agent_id],  # dx_self
-                ay[j] - ay[self.agent_id],  # dy_self
-                ax[j] - px,                 # dx_puck
-                ay[j] - py,                 # dy_puck
-                0.0                         # is_opponent
-            ])
-        
-        return np.array(obs, dtype=np.float32)
+        Args:
+            obs_batch: Batch of observations [batch_size, obs_dim]
+            
+        Returns:
+            Batch of actions [batch_size, act_dim]
+        """
+        with torch.no_grad():
+            obs_tensor = torch.FloatTensor(obs_batch).to(self.device)
+            action_means, _ = self.network(obs_tensor)
+            actions = action_means.cpu().numpy()
+            
+        return actions
 
 
-@register_policy('trained_ppo')
-class PPOTeamPolicy(TeamPolicy):
-    """Team policy using trained PPO agents"""
+class ROSAgentConverter:
+    """Convert PPO checkpoint to ROS-compatible format"""
     
-    def __init__(self, ppo_checkpoint_path: str = None, **params):
-        super().__init__(**params)
+    def __init__(self, checkpoint_path: str, device: str = "cpu"):
+        """Initialize converter
         
-        # Load PPO checkpoint
-        if ppo_checkpoint_path and Path(ppo_checkpoint_path).exists():
-            checkpoint = torch.load(ppo_checkpoint_path, map_location='cpu', weights_only=False)
-            self.ppo_state = checkpoint['model_state_dict']
-        else:
-            raise ValueError(f"PPO checkpoint not found: {ppo_checkpoint_path}")
-        
-        # Configuration
-        self.width = params['width']
-        self.height = params['height']
-        puck_max_speed = float(params.get('puck_max_speed', 6.0))
-        unit_speed_px = float(params.get('unit_speed_px', 4.0))
-        self.max_speed = max(puck_max_speed, unit_speed_px) * 1.05
-        
-        # Device
-        if torch.cuda.is_available():
-            self.device = 'cuda'
-        else:
-            self.device = 'cpu'
-        
-        # Build team/opponent ID lists
-        self.teammates_ids = [
-            [id for id in self.agents_ids if id != current_agent]
-            for current_agent in self.agents_ids
-        ]
-        
-        if self.team == 'A':
-            self.opponents_ids = list(range(
-                self.num_agents_team_a,
-                self.num_agents_team_a + self.num_agents_team_b
-            ))
-        else:
-            self.opponents_ids = list(range(self.num_agents_team_a))
+        Args:
+            checkpoint_path: Path to PPO checkpoint
+            device: Device to run on
+        """
+        self.checkpoint_path = checkpoint_path
+        self.device = device
+        self.agent = PPOAgentPolicy(checkpoint_path, device)
     
-    def get_policies(self) -> List[AgentPolicy]:
-        """Create PPO agent policies for each agent"""
-        return [
-            PPOAgentPolicy(
-                agent_id=agent_id,
-                ppo_actor_state=self.ppo_state,
-                width=self.width,
-                height=self.height,
-                max_speed=self.max_speed,
-                teammate_ids=teammates,
-                opponent_ids=self.opponents_ids,
-                device=self.device
-            )
-            for agent_id, teammates in zip(self.agents_ids, self.teammates_ids)
-        ]
+    def save_ros_format(self, output_dir: str, agent_id: int = 0):
+        """Save policy in ROS-compatible format
+        
+        Args:
+            output_dir: Directory to save policy
+            agent_id: Agent ID for naming
+        """
+        output_dir = Path(output_dir)
+        output_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Save the network state dict
+        policy_path = output_dir / f"agent_{agent_id}_policy.pt"
+        torch.save({
+            'state_dict': self.agent.network.state_dict(),
+            'network_type': 'ActorCritic',
+            'checkpoint_source': self.checkpoint_path,
+        }, policy_path)
+        
+        # Save metadata
+        metadata = {
+            'agent_id': agent_id,
+            'network_type': 'ActorCritic',
+            'checkpoint_source': str(self.checkpoint_path),
+            'device': str(self.device),
+        }
+        
+        metadata_path = output_dir / f"agent_{agent_id}_metadata.json"
+        with open(metadata_path, 'w') as f:
+            json.dump(metadata, f, indent=2)
+        
+        print(f"Saved ROS-compatible policy to:")
+        print(f"  Policy: {policy_path}")
+        print(f"  Metadata: {metadata_path}")
+        
+        return policy_path, metadata_path
 
 
-def convert_checkpoint_to_ros(checkpoint_path: str, output_path: str, 
-                              num_agents: int, scenario_params: dict):
-    """
-    Convert PPO checkpoint to ROS-compatible pickled policies
+def convert_checkpoint(
+    checkpoint_path: str,
+    output_dir: str,
+    num_agents: int = 2,
+    device: str = "cpu"
+):
+    """Convert PPO checkpoint to ROS format for multiple agents
     
     Args:
-        checkpoint_path: Path to PPO checkpoint (.pt file)
-        output_path: Output path for pickled policy
-        num_agents: Number of agents
-        scenario_params: Scenario configuration dict
+        checkpoint_path: Path to PPO checkpoint
+        output_dir: Output directory for ROS policies
+        num_agents: Number of agents per team
+        device: Device to use
     """
-    print(f"Loading checkpoint from {checkpoint_path}")
-    checkpoint = torch.load(checkpoint_path, map_location='cpu', weights_only=False)
+    print(f"Converting checkpoint for {num_agents} agents per team...")
     
-    # Create team policy with checkpoint
-    team_policy = PPOTeamPolicy(
-        ppo_checkpoint_path=checkpoint_path,
-        num_agents_team_a=num_agents,
-        num_agents_team_b=num_agents,
-        team='A',
-        **scenario_params
-    )
+    # Create converter
+    converter = ROSAgentConverter(checkpoint_path, device)
     
-    # Get individual policies
-    policies = team_policy.get_policies()
+    # Save for each agent
+    for agent_id in range(num_agents * 2):  # 2 teams
+        team_id = agent_id // num_agents
+        team_name = "blue" if team_id == 0 else "red"
+        agent_num = agent_id % num_agents
+        
+        agent_dir = Path(output_dir) / f"team_{team_name}" / f"agent_{agent_num}"
+        converter.save_ros_format(agent_dir, agent_id)
     
-    # Save each policy
-    output_dir = Path(output_path).parent
-    output_dir.mkdir(parents=True, exist_ok=True)
-    
-    for i, policy in enumerate(policies):
-        policy_path = output_dir / f"ppo_agent_{i}.pkl"
-        with open(policy_path, 'wb') as f:
-            pickle.dump(policy, f)
-        print(f"Saved policy for agent {i} to {policy_path}")
-    
-    print(f"\nConversion complete! {len(policies)} policies saved.")
-    print(f"Use these policies in your launch file:")
-    print(f"  team_a_name: 'trained_ppo'")
-    print(f"  Make sure to set ppo_checkpoint_path parameter")
+    print(f"\nConversion complete! Policies saved to {output_dir}")
+    print(f"Structure:")
+    print(f"  {output_dir}/")
+    print(f"    team_blue/")
+    for i in range(num_agents):
+        print(f"      agent_{i}/")
+    print(f"    team_red/")
+    for i in range(num_agents):
+        print(f"      agent_{i}/")
 
 
 def main():
-    parser = argparse.ArgumentParser(description='Convert PPO checkpoint to ROS policies')
-    parser.add_argument('--checkpoint', required=True, help='Path to PPO checkpoint')
-    parser.add_argument('--output', required=True, help='Output directory for policies')
-    parser.add_argument('--num-agents', type=int, default=2, help='Number of agents per team')
-    parser.add_argument('--width', type=int, default=800, help='Table width')
-    parser.add_argument('--height', type=int, default=600, help='Table height')
-    parser.add_argument('--puck-max-speed', type=float, default=6.0, help='Puck max speed')
-    parser.add_argument('--unit-speed', type=float, default=4.0, help='Unit speed px')
+    """Main conversion function"""
+    parser = argparse.ArgumentParser(description="Convert PPO checkpoint to ROS format")
+    
+    # Accept checkpoint as both positional and optional argument for compatibility
+    parser.add_argument(
+        "checkpoint", 
+        nargs='?',  # Make positional argument optional
+        help="Path to PPO checkpoint"
+    )
+    parser.add_argument(
+        "--checkpoint",
+        dest="checkpoint_flag",
+        help="Path to PPO checkpoint (alternative)"
+    )
+    parser.add_argument(
+        "--output-dir", "--output",  
+        dest="output_dir",
+        default="policies/trained_ppo",
+        help="Output directory for ROS policies"
+    )
+    parser.add_argument(
+        "--num-agents",
+        type=int,
+        default=2,
+        help="Number of agents per team"
+    )
+    parser.add_argument(
+        "--device",
+        default="cpu",
+        choices=["cpu", "cuda"],
+        help="Device to use"
+    )
+    
     args = parser.parse_args()
     
-    scenario_params = {
-        'width': args.width,
-        'height': args.height,
-        'puck_max_speed': args.puck_max_speed,
-        'unit_speed_px': args.unit_speed,
-        'goal_gap': 240,
-        'goal_offset': 40,
-        'paddle_radius': 20,
-        'puck_radius': 12,
-    }
+    # Use checkpoint from either positional or flag argument
+    checkpoint_path = args.checkpoint or args.checkpoint_flag
+    if not checkpoint_path:
+        parser.error("checkpoint path is required")
     
-    convert_checkpoint_to_ros(
-        args.checkpoint,
-        args.output,
-        args.num_agents,
-        scenario_params
-    )
+    # Check if checkpoint exists
+    if not Path(checkpoint_path).exists():
+        print(f"Error: Checkpoint not found: {checkpoint_path}")
+        return 1
+    
+    # Convert checkpoint
+    try:
+        convert_checkpoint(
+            checkpoint_path,
+            args.output_dir,
+            args.num_agents,
+            args.device
+        )
+        return 0
+    except Exception as e:
+        print(f"Error during conversion: {e}")
+        import traceback
+        traceback.print_exc()
+        return 1
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

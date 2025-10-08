@@ -205,13 +205,13 @@ class AirHockeyEnv:
             
             # Penalty for being too far right (should defend left side)
             if new_state['agent_x'][i] > self.engine.width * 0.55:
-                rewards[i] -= 0.01
+                rewards[i] -= 0.02
             
             # Small action penalty for energy efficiency
-            action_penalty = 0.0001 * (np.abs(actions[i]).sum())
+            action_penalty = 0.001 * (np.abs(actions[i]).sum())
             rewards[i] -= action_penalty
             
-            # UPDATED: Much stronger collision penalties
+        # Strong collision penalties
         # Penalty for being too close to teammates
         for j in range(self.num_team_a):
             if i != j:  # Don't compare with self
@@ -231,34 +231,34 @@ class AirHockeyEnv:
                     rewards[i] -= collision_penalty
         
         # Penalty for being too close to opponents
-        for j in range(self.num_team_a, self.num_team_a + self.num_team_b):
-            dist_to_opponent = np.hypot(
-                new_state['agent_x'][i] - new_state['agent_x'][j],
-                new_state['agent_y'][i] - new_state['agent_y'][j]
-            )
+        #for j in range(self.num_team_a, self.num_team_a + self.num_team_b):
+        #    dist_to_opponent = np.hypot(
+        #        new_state['agent_x'][i] - new_state['agent_x'][j],
+        #        new_state['agent_y'][i] - new_state['agent_y'][j]
+        #    )
             # Larger safe distance and even stronger penalty
-            collision_threshold = 2 * self.engine.paddle_radius + 20
-            if dist_to_opponent < collision_threshold:
+        #    collision_threshold = 2 * self.engine.paddle_radius + 20
+        #    if dist_to_opponent < collision_threshold:
                 # MUCH stronger penalty for opponents
-                penalty_scale = (1.0 - dist_to_opponent / collision_threshold)
-                collision_penalty = 0.8 * penalty_scale
+        #        penalty_scale = (1.0 - dist_to_opponent / collision_threshold)
+        #        collision_penalty = 0.8 * penalty_scale
                 # Extremely harsh penalty for touching opponents
-                if dist_to_opponent < 2 * self.engine.paddle_radius:
-                    collision_penalty += 2.0
-                rewards[i] -= collision_penalty
+        #        if dist_to_opponent < 2 * self.engine.paddle_radius:
+        #            collision_penalty += 2.0
+        #        rewards[i] -= collision_penalty
             
             # Penalty for being too close to opponents
-            for j in range(self.num_team_a, self.num_team_a + self.num_team_b):
-                dist_to_opponent = np.hypot(
-                    new_state['agent_x'][i] - new_state['agent_x'][j],
-                    new_state['agent_y'][i] - new_state['agent_y'][j]
-                )
+        #    for j in range(self.num_team_a, self.num_team_a + self.num_team_b):
+        #        dist_to_opponent = np.hypot(
+        #            new_state['agent_x'][i] - new_state['agent_x'][j],
+        #            new_state['agent_y'][i] - new_state['agent_y'][j]
+        #        )
                 # Penalty for touching/colliding with opponents
-                collision_threshold = 2 * self.engine.paddle_radius + 5
-                if dist_to_opponent < collision_threshold:
+        #        collision_threshold = 2 * self.engine.paddle_radius + 5
+        #        if dist_to_opponent < collision_threshold:
                     # Even stronger penalty for opponent collisions
-                    collision_penalty = 0.2 * (1.0 - dist_to_opponent / collision_threshold)
-                    rewards[i] -= collision_penalty
+        #            collision_penalty = 0.2 * (1.0 - dist_to_opponent / collision_threshold)
+        #            rewards[i] -= collision_penalty
         
         return rewards
     

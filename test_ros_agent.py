@@ -19,6 +19,7 @@ import json
 import time
 
 sys.path.insert(0, str(Path(__file__).parent / "src"))
+from training.convert_ppo_to_ros import PPOAgentPolicy, PPOTeamPolicy
 
 from air_hockey_ros.simulations.base import BaseSimulation
 
