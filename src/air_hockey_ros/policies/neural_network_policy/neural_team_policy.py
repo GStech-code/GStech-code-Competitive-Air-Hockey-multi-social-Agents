@@ -4,7 +4,7 @@ from .neural_agent_policy import NeuralAgentPolicy
 import torch
 
 @register_policy('neural')
-class SimpleTeamPolicy(TeamPolicy):
+class NeuralTeamPolicy(TeamPolicy):
     def __init__(self, **params):
         super().__init__(**params)
         if torch.cuda.is_available():
@@ -14,7 +14,7 @@ class SimpleTeamPolicy(TeamPolicy):
         self.device = 'cuda'
         self.width = params['width']
         self.height = params['height']
-        puck_max_speed = float(params.get('puck_max_speed', 4.0))
+        puck_max_speed = float(params.get('puck_max_speed', 6.0))
         unit_speed_px = float(params.get('unit_speed_px', 4.0))
         self.max_speed = max(puck_max_speed, unit_speed_px) * 1.05
         self.teammates_ids = [[id for id in self.agents_ids if id != current_agent]
