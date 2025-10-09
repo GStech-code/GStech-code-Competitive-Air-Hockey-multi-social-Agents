@@ -88,8 +88,13 @@ class NeuralAgentPolicy(AgentPolicy):
 
     def load(self, path: str, strict: bool = True):
         sd = torch.load(path, map_location="cpu")
-        if "core" in sd:  # trainer-style checkpoint
-            sd = sd["core"]
+        if isinstance(sd, dict):
+            for key in ("core", "model_state_dict", "state_dict"):
+                if key in sd:
+                    sd = sd[key]
+                    break
+            else:
+                sd = list(sd.values())[0]
         self.net.load_state_dict(sd, strict=strict)
 
     # -------------
