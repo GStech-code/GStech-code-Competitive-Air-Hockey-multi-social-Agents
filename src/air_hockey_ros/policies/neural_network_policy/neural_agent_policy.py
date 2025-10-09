@@ -2,10 +2,10 @@
 from __future__ import annotations
 from typing import Tuple, List
 import numpy as np
+import torch
 
 from air_hockey_ros import AgentPolicy
 from .multiagent_paddle_net import MultiAgentPaddleNet
-
 
 def _to_discrete(dx: float, dy: float, thresh: float) -> Tuple[int, int]:
     def d(v: float) -> int:
@@ -57,7 +57,7 @@ class NeuralAgentPolicy(AgentPolicy):
         self._op_flag = 0.0
 
         # --- model ---
-        self.net = MultiAgentPaddleNet(device=device, number_teammates=self.T, number_opponents=self.O)
+        self.net = MultiAgentPaddleNet(device_name=device, number_teammates=self.T, number_opponents=self.O)
 
     # -------------
     # Public API
@@ -84,12 +84,12 @@ class NeuralAgentPolicy(AgentPolicy):
         return _to_discrete(dx_f, dy_f, self.deadzone)
 
     def save(self, path: str):
-        import torch
         torch.save(self.net.state_dict(), path)
 
     def load(self, path: str, strict: bool = True):
-        import torch
         sd = torch.load(path, map_location="cpu")
+        if "core" in sd:  # trainer-style checkpoint
+            sd = sd["core"]
         self.net.load_state_dict(sd, strict=strict)
 
     # -------------
