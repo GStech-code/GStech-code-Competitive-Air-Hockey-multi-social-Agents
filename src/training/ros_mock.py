@@ -115,19 +115,22 @@ class RosMock:
                 cmds.append((aid, -vx, -vy))
         else:
             Exec = ThreadPoolExecutor if self.parallel == "thread" else ProcessPoolExecutor
+
+            def _call_update(pol, state, aid, flip):
+                vx, vy = pol.update(state)
+                if flip:
+                    return aid, -vx, vy
+                return aid, vx, vy
+
             with Exec(max_workers=self.max_workers) as ex:
-                futs = []
-                for pol in self.team_a_policies:
-                    futs.append(ex.submit(lambda p=pol, s=ws_a: p.update(s)))
-                for pol in self.team_b_policies:
-                    futs.append(ex.submit(lambda p=pol, s=ws_b: p.update(s)))
-                # Collect in order of completion; map back to agent ids
-                for aid, f in enumerate(as_completed(futs)):
-                    vx, vy = f.result()
-                    if aid < self.num_agents_team_a:
-                        cmds.append((aid, vx, vy))
-                    else:
-                        cmds.append((aid, -vx, -vy))
+                jobs = []
+                for i, pol in enumerate(self.team_a_policies):
+                    jobs.append((pol, ws_a, i, False))
+                for j, pol in enumerate(self.team_b_policies):
+                    jobs.append((pol, ws_b, self.num_agents_team_a + j, True))
+
+                for aid, vx, vy in ex.map(lambda args: _call_update(*args), jobs):
+                    cmds.append((aid, vx, vy))
 
         # Apply to sim and return the new state
         self.sim.apply_commands(cmds)
