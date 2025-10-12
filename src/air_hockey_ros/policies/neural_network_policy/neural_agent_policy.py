@@ -72,14 +72,16 @@ class NeuralAgentPolicy(AgentPolicy):
           - puck_vx: float
           - puck_vy: float
         """
-        # Build structured features using precomputed constants / indices
+        # Build structured features
         self_xy, puck_xyvy, team_feats, opp_feats = self._build_struct(world_state)
-
+        
         # Forward
         dx_f, dy_f = self.net.get_action_struct(self_xy, puck_xyvy, team_feats, opp_feats)
+        
+        # HALF-LINE ENFORCEMENT - Force move left if past middle
         if self_xy[0] >= 0.5:
             dx_f = -1
-
+        
         # Always discrete output
         return _to_discrete(dx_f, dy_f, self.deadzone)
 

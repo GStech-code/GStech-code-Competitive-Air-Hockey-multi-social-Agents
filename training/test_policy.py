@@ -61,7 +61,30 @@ class PolicyTester:
                 num_agents_team_b=self.config.num_agents_team_b,
                 **scenario_params
             )
-    
+
+    def _enforce_half_line(self, actions: np.ndarray, world_state: Dict) -> np.ndarray:
+        """Enforce half-line constraint for Team A agents"""
+        half_line = self.env.engine.width / 2.0
+        actions = actions.copy()  # Don't modify original
+        
+        for i in range(self.config.num_agents_team_a):
+            agent_x = world_state['agent_x'][i]
+            if agent_x >= half_line:
+                # Discretize action
+                ax = actions[i, 0]
+                if ax > 0.33:
+                    ax_discrete = 1
+                elif ax < -0.33:
+                    ax_discrete = -1
+                else:
+                    ax_discrete = 0
+                
+                # Force move left if not already
+                if ax_discrete != -1:
+                    actions[i, 0] = -1.0
+        
+        return actions
+
     def test_episode(self, opponent_type: str = 'random',
                     render: bool = None, max_steps: int = 3600) -> Dict:
         """Run a single test episode"""
@@ -85,6 +108,10 @@ class PolicyTester:
                 obs_tensor = torch.FloatTensor(obs).to(self.device)
                 action, _, _, _ = self.agent.get_action_and_value(obs_tensor)
                 action_team_a = action.cpu().numpy()
+            
+            # Enforce half-line constraint for Team A
+            world_state = self.env.engine.get_world_state()
+            action_team_a = self._enforce_half_line(action_team_a, world_state)
             
             # Generate opponent actions (Team B)
             action_team_b = self._generate_opponent_actions(opponent_type)

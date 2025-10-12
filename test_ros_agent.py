@@ -12,16 +12,65 @@ Usage:
 import argparse
 import pickle
 import sys
+import os
 from pathlib import Path
 from typing import Dict, List, Tuple
 import numpy as np
 import json
 import time
 
-sys.path.insert(0, str(Path(__file__).parent / "src"))
-from training.convert_ppo_to_ros import PPOAgentPolicy, PPOTeamPolicy
+# Add project paths
+project_root = Path(__file__).resolve().parent
+src_dir = project_root / "src"
+training_dir = project_root / "training"
 
+# Verify paths exist
+print(f"Project root: {project_root}")
+print(f"Training dir exists: {training_dir.exists()}")
+print(f"ppo_ros_policy.py exists: {(training_dir / 'ppo_ros_policy.py').exists()}")
+
+# Add all necessary paths to sys.path
+for p in [str(project_root), str(src_dir)]:
+    if p not in sys.path:
+        sys.path.insert(0, p)
+
+print(f"\nPython path (first 3): {sys.path[:3]}")
+
+# Import simulation
 from air_hockey_ros.simulations.base import BaseSimulation
+
+# Import the standalone policy class - MUST match the path used when pickling
+try:
+    from training.ppo_ros_policy import PPOAgentPolicy
+    print("✓ Successfully imported PPOAgentPolicy")
+except ImportError as e:
+    print(f"❌ Failed to import PPOAgentPolicy: {e}")
+    print(f"\nDebugging info:")
+    print(f"  Current working directory: {os.getcwd()}")
+    print(f"  Project root: {project_root}")
+    print(f"  sys.path[0]: {sys.path[0]}")
+    
+    # Try alternative import
+    print("\n  Trying alternative import method...")
+    try:
+        # Add training dir directly
+        if str(training_dir) not in sys.path:
+            sys.path.insert(0, str(training_dir))
+        import ppo_ros_policy
+        PPOAgentPolicy = ppo_ros_policy.PPOAgentPolicy
+        
+        # CRITICAL: Register it in sys.modules with the path pickle expects
+        sys.modules['training.ppo_ros_policy'] = ppo_ros_policy
+        sys.modules['training'] = type(sys)('training')
+        
+        print("  ✓ Alternative import succeeded and registered!")
+    except ImportError as e2:
+        print(f"  ❌ Alternative import also failed: {e2}")
+        print("\n  Please ensure:")
+        print("    1. File exists: training/ppo_ros_policy.py")
+        print("    2. File exists: training/__init__.py")
+        print("    3. You're running from project root")
+        sys.exit(1)
 
 
 class ROSAgentTester:
@@ -49,10 +98,14 @@ class ROSAgentTester:
         
         print(f"\n📦 Loading agents from {self.policy_dir}:")
         for agent_file in agent_files:
-            with open(agent_file, 'rb') as f:
-                agent = pickle.load(f)
-                agents.append(agent)
-                print(f"  ✓ Loaded {agent_file.name}")
+            try:
+                with open(agent_file, 'rb') as f:
+                    agent = pickle.load(f)
+                    agents.append(agent)
+                    print(f"  ✓ Loaded {agent_file.name}")
+            except Exception as e:
+                print(f"  ✗ Failed to load {agent_file.name}: {e}")
+                raise
         
         return agents
     
@@ -79,8 +132,12 @@ class ROSAgentTester:
             # Get actions from ROS agents (Team A)
             team_a_actions = []
             for i, agent in enumerate(self.agents):
-                vx, vy = agent.update(world_state)
-                team_a_actions.append((i, vx, vy))
+                try:
+                    vx, vy = agent.update(world_state)
+                    team_a_actions.append((i, vx, vy))
+                except Exception as e:
+                    print(f"Error getting action from agent {i}: {e}")
+                    team_a_actions.append((i, 0, 0))
             
             # Generate opponent actions (Team B)
             team_b_actions = self._get_opponent_actions(
@@ -268,7 +325,7 @@ def main():
         print(f"❌ Error: Policy directory not found: {args.policy_dir}")
         print("\nYou need to convert a checkpoint first:")
         print(f"  python training/convert_ppo_to_ros.py --checkpoint <checkpoint.pt> --output {args.policy_dir}")
-        print("  OR use quickstart.sh → Option 5")
+        print("  OR use quickstart.sh → Option 6")
         sys.exit(1)
     
     try:

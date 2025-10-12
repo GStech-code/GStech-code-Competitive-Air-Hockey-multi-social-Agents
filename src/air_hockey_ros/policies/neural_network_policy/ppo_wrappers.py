@@ -114,33 +114,42 @@ class AgentPPOWrapper:
         logits_x, logits_y = self.head_x(feat), self.head_y(feat)       # [1,3], [1,3]
         value = self.v_head(feat).squeeze(-1)                            # [1]
 
+        dist_x = torch.distributions.Categorical(logits=logits_x)
+        dist_y = torch.distributions.Categorical(logits=logits_y)
+
         if self.training_mode:
-            dist_x = torch.distributions.Categorical(logits=logits_x)
-            dist_y = torch.distributions.Categorical(logits=logits_y)
             ax = int(dist_x.sample().item())
             ay = int(dist_y.sample().item())
-            logp = dist_x.log_prob(torch.tensor(ax, device=self.device)) \
-                 + dist_y.log_prob(torch.tensor(ay, device=self.device))
         else:
             ax = int(torch.argmax(logits_x, dim=-1).item())
             ay = int(torch.argmax(logits_y, dim=-1).item())
-            # (optional) compute logp for eval logging
-            dist_x = torch.distributions.Categorical(logits=logits_x)
-            dist_y = torch.distributions.Categorical(logits=logits_y)
-            logp = dist_x.log_prob(torch.tensor(ax, device=self.device)) \
-                 + dist_y.log_prob(torch.tensor(ay, device=self.device))
 
-        # cache
+        # Decode to {-1, 0, 1}
+        dx = _INT_TO_AXIS[ax]
+        dy = _INT_TO_AXIS[ay]
+
+        # ----- HALF-LINE ENFORCEMENT (world units) -----
+        # Force agent to move left (-1) if they're at or past the half line
+        if ws["agent_x"][self.agent_id] >= self.half_line:
+            if dx != -1:
+                dx = -1  # Force move left
+                ax = _AXIS_TO_INT[dx]  # Convert back to action index for logging
+
+        # Compute log-prob AFTER enforcement (must match the actual executed action)
+        logp = dist_x.log_prob(torch.tensor(ax, device=self.device)) \
+            + dist_y.log_prob(torch.tensor(ay, device=self.device))
+
+        # Cache AFTER all adjustments so PPO uses the executed action/values
         self.last_feat = feat.detach()
         self.last_ax = ax
         self.last_ay = ay
         self.last_logp = logp.detach()
         self.last_value = value.detach()
 
-        dx = _INT_TO_AXIS[ax]
-        dy = _INT_TO_AXIS[ay]
+        # Apply mirroring AFTER caching (for Team B's world view)
         if self.mirror_xy:
             dx = -dx  # mirror X only (world is mirrored for team B)
+        
         return dx, dy
 
     def set_train_mode(self, on: bool):
