@@ -2,10 +2,10 @@
 from __future__ import annotations
 from typing import Tuple, List
 import numpy as np
+import torch
 
 from air_hockey_ros import AgentPolicy
 from .multiagent_paddle_net import MultiAgentPaddleNet
-
 
 def _to_discrete(dx: float, dy: float, thresh: float) -> Tuple[int, int]:
     def d(v: float) -> int:
@@ -50,14 +50,14 @@ class NeuralAgentPolicy(AgentPolicy):
         self.O = len(self.opponent_ids)
 
         # Masks are all ones if lists are always filled (fixed size)
-        self.opp_mask_const  = np.ones((self.O,), dtype=np.float32)
+        self.opp_mask_const = np.ones((self.O,), dtype=np.float32)
 
         # Constant teammate/opponent flag values for the 5th feature
         self._tm_flag = 1.0
         self._op_flag = 0.0
 
         # --- model ---
-        self.net = MultiAgentPaddleNet(device=device, number_teammates=self.T, number_opponents=self.O)
+        self.net = MultiAgentPaddleNet(device_name=device, number_teammates=self.T, number_opponents=self.O)
 
     # -------------
     # Public API
@@ -72,22 +72,31 @@ class NeuralAgentPolicy(AgentPolicy):
           - puck_vx: float
           - puck_vy: float
         """
-        # Build structured features using precomputed constants / indices
-        self_xy, puck_xyvy, team_feats, opp_feats  = self._build_struct(world_state)
-
+        # Build structured features
+        self_xy, puck_xyvy, team_feats, opp_feats = self._build_struct(world_state)
+        
         # Forward
         dx_f, dy_f = self.net.get_action_struct(self_xy, puck_xyvy, team_feats, opp_feats)
-
+        
+        # HALF-LINE ENFORCEMENT - Force move left if past middle
+        if self_xy[0] >= 0.5:
+            dx_f = -1
+        
         # Always discrete output
         return _to_discrete(dx_f, dy_f, self.deadzone)
 
     def save(self, path: str):
-        import torch
         torch.save(self.net.state_dict(), path)
 
     def load(self, path: str, strict: bool = True):
-        import torch
         sd = torch.load(path, map_location="cpu")
+        if isinstance(sd, dict):
+            for key in ("core", "model_state_dict", "state_dict"):
+                if key in sd:
+                    sd = sd[key]
+                    break
+            else:
+                sd = list(sd.values())[0]
         self.net.load_state_dict(sd, strict=strict)
 
     # -------------

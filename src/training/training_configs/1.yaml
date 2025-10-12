@@ -1,0 +1,87 @@
+episodes: 20
+
+lr: 0.001
+gamma: 0.99
+
+# Episode/game limits (applied unless a game overrides)
+steps_per_episode: 1800
+goal_limit: 10
+
+# Where to store RLlib checkpoints
+output_dir: ./checkpoints
+checkpoint_every: 10
+
+# Optional initialization for Team A
+init_teamA:
+  load_ckpt: "checkpoints/teamA_ep20.pt"   # "" or omit to skip loading
+  rand_std: 0.1                           # 0 or omit to skip random jitter
+  include_core: false                      # false=jitter heads only; true=jitter encoder too
+  teach:
+    enabled: true                          # quick "move toward puck" warmup
+    iters: 64
+    lr: 0.001
+
+# Optional initialization for Team B
+init_teamB:
+  load_ckpt: ""                            # "" or omit → no load
+  rand_std: 0.2
+  include_core: true
+  teach:
+    enabled: false
+
+
+# Defaults applied to all games unless overridden below
+defaults:
+  num_agents_team_a: 1
+  num_agents_team_b: 1
+  team_a: neural    # options in this template: neural | simple
+  team_b: simple
+  rules:
+    width: 800
+    height: 600
+    puck_radius: 12
+    paddle_radius: 20
+    friction_per_tick: 1
+    unit_speed_px: 4.0
+    puck_max_speed: 6.0
+  rewards:
+    score_delta: 1.0
+    dist_to_puck_penalty: 0.001
+
+# Optional: list of games to cycle through. If omitted, a single 'default' game is used.
+games:
+  - name: regular_with_adjustments
+    num_agents_team_a: 1
+    num_agents_team_b: 1
+    team_a: neural
+    team_b: simple
+    rules:
+      width: 800
+      height: 600
+      puck_radius: 12
+      paddle_radius: 20
+      friction_per_tick: 1
+      unit_speed_px: 4.0
+      puck_max_speed: 6.0
+    rewards:
+      score_delta: 1.0
+      dist_to_puck_penalty: 0.002
+
+  - name: small_table
+    num_agents_team_a: 1
+    num_agents_team_b: 1
+    team_a: neural
+    team_b: simple
+    rules:
+      width: 200
+      height: 100
+      goal_gap: 40
+      goal_offset: 10
+      puck_radius: 6
+      paddle_radius: 8
+      friction_per_tick: 1
+      unit_speed_px: 2.0
+      puck_max_speed: 3.0
+    rewards:
+      score_delta: 1.0
+      dist_to_puck_penalty: 0

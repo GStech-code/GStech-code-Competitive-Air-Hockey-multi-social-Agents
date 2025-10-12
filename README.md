@@ -7,54 +7,101 @@ You may be required to have certain ROS 2 related installations besides what is 
 ## Run the following commands after cloning:
 
 ### if you haven't already defined python environment:
+```
 python3 -m venv .venv 
 
 source .venv/bin/activate
-
+```
 ### Install requirements:
+```
 pip install -r requirements.txt
-
-### May or may not be required:
-touch .venv/COLCON_IGNORE 2>/dev/null || true
+```
 
 ### Build ROS install:
+```
 source /opt/ros/jazzy/setup.bash
-
+chmod +x src/air_hockey_ros/air_hockey_ros/agent_node.py
+chmod +x src/air_hockey_ros/air_hockey_ros/game_manager_node.py
 colcon build --symlink-install --packages-select air_hockey_ros
-
 source install/setup.bash
-
+```
 #### If you add files, use the colcon build & source functions again.
 
 
-#### If package was built but could not run, try to run the following:
-chmod +x src/air_hockey_ros/air_hockey_ros/agent_node.py
-chmod +x src/air_hockey_ros/air_hockey_ros/game_manager_node.py
 
 #### For threaded / multi processing files, need to provide permissions:
+```
 chmod +x path/to/script.py
-#### To provide editing permissions when files are managed in git:
+```
+#### To provide editing permissions when files are managed in git, this command is supposed to help:
+```
 git update-index --chmod=+x path/to/script.py
-
+```
 ### To delete install package:
+```
 rm -rf build/ install/ log/
-
-
+```
 ## Run:
 ### Running the simulation
+#### Single game
+```
 ros2 launch air_hockey_ros single_game.launch.py
+```
+#### Multiple games
+```
+ros2 launch air_hockey_ros multi_game.launch.py   games_config:=games_configs/1.yaml
+```
+For multiple games you may choose a different config yaml and edit or alter existing ones
 
 currently end run by SIGINT (ctrl + c)
 
 ### Checking if nodes are alive:
+```
 ps -ef | grep game_manager_node.py
 
 ps -ef | grep agent_node.py
-
+```
 #### You should see only one line returned per each command after finishing the game.
 #### If nodes are still alive, end them with the kill command.
 
 ### Running replay
 Example command:
 
+```
 python replay.py --log game_logs/game_log_1.log --scenario src/air_hockey_ros/game_scenarios/simple_scenario.yaml --hz 60
+```
+
+## 🤖 Training Neural Network Agents
+
+This project includes PPO (Proximal Policy Optimization) training for neural network agents.
+
+### Quick Start
+```bash
+# Install training dependencies
+pip install -r requirements_ppo.txt
+
+# Run interactive training menu
+chmod +x quickstart.sh
+./quickstart.sh
+```
+
+### Manual Training
+```bash
+# Train agents
+python training/train_ppo.py --config config/ppo_config.yaml
+
+# Test trained policy
+python training/test_policy.py --checkpoint checkpoints/ppo_checkpoint_1000.pt --visualize
+
+# Convert for ROS deployment
+python training/convert_ppo_to_ros.py --checkpoint checkpoints/ppo_checkpoint_1000.pt --output policies/trained
+```
+
+For detailed training documentation, see [TRAINING.md](TRAINING.md)
+
+
+cd /mnt/c/Users/galsa/source/repos/AirHockey/GStech-code-Competitive-Air-Hockey-multi-social-Agents
+
+source .venv/bin/activate
+
+./quickstart.sh

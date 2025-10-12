@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+#game_manager_node.py
 from typing import Dict, List, Literal, Tuple
 import subprocess
 import pickle
@@ -18,7 +19,7 @@ from air_hockey_ros.simulation import Simulation
 from air_hockey_ros.registration import get_team_policy, get_simulation
 
 from air_hockey_ros.srv import StartGame
-from air_hockey_ros.msg import AgentCommand, WorldState, GameResult
+from air_hockey_ros.msg import AgentCommand, WorldState
 
 import importlib
 import pkgutil
@@ -95,16 +96,23 @@ class GameManagerNode(Node):
     def __init__(self, agent_procs: AgentProcs, simulation_name: str, **params):
         super().__init__('game_manager')
         self.rclpy_clock = rclpy.clock.Clock()
+        self.oneshot = params.pop('oneshot', True)
+
         self.logger = logging.getLogger('game_manager')
         self.logger.propagate = False
-        self.logger.setLevel(logging.INFO)
+
+        if params.pop('log_game_manager', False):
+            self.logger.setLevel(logging.INFO)
+            if not self.logger.handlers:  # avoid duplicate handlers on reload
+                fh = logging.FileHandler(f"game_manager.log")
+                fmt = logging.Formatter("%(asctime)s [%(levelname)s] %(message)s")
+                fh.setFormatter(fmt)
+                self.logger.addHandler(fh)
+        else:
+            self.logger.addHandler(logging.NullHandler())
+
         self.log_team_a = params.pop("log_team_a", False)
         self.log_team_b = params.pop("log_team_b", False)
-        if not self.logger.handlers:  # avoid duplicate handlers on reload
-            fh = logging.FileHandler(f"game_manager.log")
-            fmt = logging.Formatter("%(asctime)s [%(levelname)s] %(message)s")
-            fh.setFormatter(fmt)
-            self.logger.addHandler(fh)
 
         self.declare_parameter('tick_hz', GAME_TICK_HZ)
 
@@ -140,8 +148,6 @@ class GameManagerNode(Node):
             '/world_update_b',
             QOS_PROFILE
         )
-
-        self.result_pub = self.create_publisher(GameResult, '/game_result', 10)
 
         # Service to start/init game
         self.start_srv = self.create_service(
@@ -267,7 +273,12 @@ class GameManagerNode(Node):
         else:
             winner = "Draw"
         self.logger.info(f"Ending game: Team a: {team_a_score}, Team b: {team_b_score}, Winner: {winner}")
-        self.result_pub.publish(GameResult(team_a_score=team_a_score, team_b_score=team_b_score, winner=winner))
+        if self.oneshot:
+            try:
+                self.destroy_node()
+            finally:
+                rclpy.shutdown()
+            return
 
     def _tick(self):
         if not self.game_active:
@@ -346,12 +357,12 @@ def main(args=None):
 
     signal.signal(signal.SIGTERM, _term_handler)
 
-    sim_name, sim_params = _parse_sim_args(sys.argv)
+    sim_name, params = _parse_sim_args(sys.argv)
 
     logging.basicConfig(level=logging.DEBUG)
 
     try:
-        node = GameManagerNode(agent_procs=agent_procs, simulation_name=sim_name, **sim_params)
+        node = GameManagerNode(agent_procs=agent_procs, simulation_name=sim_name, **params)
         rclpy.spin(node)
     except KeyboardInterrupt:
         logging.info("Interrupted by user (SIGINT).")

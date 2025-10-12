@@ -26,6 +26,8 @@ class LatestChangeStatus:
 class STCommandQueue:
     def __init__(self, capacity: int = 32):
         self._dq = deque(maxlen=capacity)
+        self.x_adv = 0
+        self.y_adv = 0
         self._cap = capacity
         self._lock = threading.Lock()
 
@@ -46,32 +48,43 @@ class STCommandQueue:
     def push(self, cmd: Command) -> None:
         with self._lock:
             if len(self._dq) >= self._cap:
-                # drop NEWEST first to preserve items awaiting pop
-                self._dq.pop()
-            self._dq.append(cmd)  # newest on right
+                raise Exception('Queue is full')
+            self._dq.append(cmd)
+        self.x_adv += cmd[0]
+        self.y_adv += cmd[1]
 
     def push_multiple(self, cmds: List[Command]) -> None:
         length_new = len(cmds)
         with self._lock:
-            overrides = length_new + len(self._dq) - self._cap
-            for i in range(overrides):
-                self._dq.pop()
+            if len(self._dq) + length_new > self._cap:
+                raise Exception('Inserting too many objects')
             self._dq.extend(cmds)
+        for cmd in cmds:
+            self.x_adv += cmd[0]
+            self.y_adv += cmd[1]
 
     def pop(self) -> Optional[Command]:
         with self._lock:
             if not self._dq:
                 return None
-            return self._dq.popleft()  # oldest first
+            cmd = self._dq.popleft()
+            self.x_adv -= cmd[0]
+            self.y_adv -= cmd[1]
+            return cmd
 
     def flush_newest(self, k: int) -> None:
         with self._lock:
             for _ in range(min(k, len(self._dq))):
-                self._dq.pop()
+                cmd = self._dq.pop()
+                self.x_adv -= cmd[0]
+                self.y_adv -= cmd[1]
 
     def clear(self) -> None:
         with self._lock:
             self._dq.clear()
+        self.x_adv = 0
+        self.y_adv = 0
+
 class Mailbox:
     """Wiring for your semantics."""
     def __init__(self, cmd_capacity: int = 32):

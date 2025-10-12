@@ -10,7 +10,6 @@ find_package(builtin_interfaces REQUIRED)
 rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/AgentCommand.msg"
   "msg/WorldState.msg"
-  "msg/GameResult.msg"
   "srv/StartGame.srv"
   DEPENDENCIES builtin_interfaces
 )

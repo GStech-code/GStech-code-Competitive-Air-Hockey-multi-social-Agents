@@ -1,0 +1,252 @@
+# Testing ROS Agents - Complete Guide
+
+## 📋 Two Ways to Test Your Agents
+
+### 1. **Test PPO Training Network** (Option 3)
+- **What**: Tests the `ActorCritic` network used during training
+- **File**: `training/test_policy.py`
+- **Input**: Checkpoint file (`.pt`)
+- **Purpose**: Verify training is working correctly
+
+### 2. **Test Converted ROS Agent** (Option 4) ⭐ NEW
+- **What**: Tests the actual converted policy that runs in ROS
+- **File**: `test_ros_agent.py`
+- **Input**: Converted policy files (`.pkl`)
+- **Purpose**: Test the deployed agent with visualization
+
+## 🎮 How to Use ROS Agent Testing
+
+### Step 1: Train and Convert
+
+```bash
+./quickstart.sh
+
+# First, train a model
+# Select: 1) Start training from scratch
+# (or use existing checkpoint)
+
+# Then convert it
+# Select: 6) Convert checkpoint to ROS format
+# - Enter checkpoint path: checkpoints/ppo_checkpoint_100.pt
+# - Output directory: policies/trained_ppo
+# - Number of agents: 2
+```
+
+### Step 2: Test the ROS Agent
+
+```bash
+./quickstart.sh
+
+# Select: 4) Test ROS agent (converted policy)
+# - Policy directory: trained_ppo
+# - Opponent: Random/Static/Simple AI
+# - Episodes: 10
+# - Visualize: y (to see pygame window)
+```
+
+### Direct Command Line Usage
+
+```bash
+# Basic test with visualization
+python test_ros_agent.py \
+    --policy-dir policies/trained_ppo \
+    --visualize \
+    --episodes 10
+
+# Test against simple AI
+python test_ros_agent.py \
+    --policy-dir policies/trained_ppo \
+    --opponent simple \
+    --episodes 50 \
+    --save-results results/ros_eval.json
+
+# Quick visual test (1 episode)
+python test_ros_agent.py \
+    --policy-dir policies/trained_ppo \
+    --visualize \
+    --episodes 1
+```
+
+## 📊 What You'll See
+
+### Console Output:
+```
+📦 Loading agents from policies/trained_ppo:
+  ✓ Loaded ppo_agent_0.pkl
+  ✓ Loaded ppo_agent_1.pkl
+
+🎮 Running 10 episodes against 'random' opponent...
+============================================================
+Episode 1/10: Score 4-2, Winner: A, Length: 1245 steps
+Episode 2/10: Score 3-3, Winner: Draw, Length: 1890 steps
+Episode 3/10: Score 5-1, Winner: A, Length: 987 steps
+...
+
+📊 ROS AGENT EVALUATION RESULTS
+============================================================
+Number of Episodes: 10
+
+Score Statistics:
+  Mean Score (Team A): 3.8
+  Mean Score (Team B): 2.1
+  Mean Goal Difference: +1.7
+  Mean Episode Length: 1234.5 steps
+
+Win/Loss Statistics:
+  Win Rate (Team A): 70.0%
+  Draw Rate: 10.0%
+  Loss Rate (Team B): 20.0%
+============================================================
+```
+
+### Pygame Window (if --visualize):
+- Shows the actual game
+- Blue paddles = Your ROS agents
+- Red paddles = Opponents
+- Real-time visualization
+- Only shows on first episode (for speed)
+
+## 🔍 Differences Between Test Options
+
+| Feature | Option 3 (PPO Network) | Option 4 (ROS Agent) |
+|---------|------------------------|----------------------|
+| **Network** | ActorCritic (training) | Converted ROS policy |
+| **Input** | `.pt` checkpoint | `.pkl` policy files |
+| **What's tested** | Training network | Deployed agent |
+| **Use case** | Training validation | Deployment testing |
+| **Visualization** | ✅ Yes | ✅ Yes |
+| **Opponent types** | Random/Static/Simple | Random/Static/Simple |
+
+## 🎯 Typical Workflow
+
+```
+1. Train model
+   └─> quickstart.sh → Option 1
+
+2. Test training is working
+   └─> quickstart.sh → Option 3
+   └─> Verify win rate is improving
+
+3. Convert best checkpoint
+   └─> quickstart.sh → Option 6
+   └─> Select best checkpoint based on Option 3 results
+
+4. Test converted ROS agent
+   └─> quickstart.sh → Option 4
+   └─> Verify it works exactly as expected
+
+5. Deploy to ROS
+   └─> Use converted policies in launch file
+   └─> Update team_a_name: 'trained_ppo'
+```
+
+## 🐛 Troubleshooting
+
+### "No converted ROS policies found"
+```bash
+# You need to convert first
+./quickstart.sh
+# Select: 6) Convert checkpoint to ROS format
+```
+
+### "test_ros_agent.py not found"
+```bash
+# Place the script in project root
+# It should be at the same level as quickstart.sh
+```
+
+### Visualization not showing
+```bash
+# Make sure you selected "y" for visualize
+# Check pygame is installed: pip install pygame
+```
+
+### Different results between Option 3 and 4
+This is normal due to:
+- Different network architectures (slight)
+- Random opponent behavior
+- Timing differences
+
+If results are very different, check the conversion worked correctly.
+
+## 📈 Performance Benchmarks
+
+Expected performance of converted agents:
+
+| Opponent | Expected Win Rate |
+|----------|-------------------|
+| Random | 80-95% |
+| Static | 90-100% |
+| Simple AI | 60-80% |
+
+If your agent performs significantly worse, check:
+1. Conversion was successful
+2. Checkpoint was well-trained
+3. Scenario params match training
+
+## 🔧 Advanced Usage
+
+### Custom Opponents
+
+Edit `test_ros_agent.py` to add custom opponent logic:
+
+```python
+elif opponent_type == 'custom':
+    # Your custom opponent logic here
+    for i in range(num_opponents):
+        # Calculate vx, vy based on strategy
+        actions.append((start_id + i, vx, vy))
+```
+
+### Batch Testing
+
+Test multiple policy directories:
+
+```bash
+for policy_dir in policies/*/; do
+    python test_ros_agent.py \
+        --policy-dir "$policy_dir" \
+        --episodes 50 \
+        --save-results "results/$(basename $policy_dir).json"
+done
+```
+
+### Compare Training vs ROS Agent
+
+```bash
+# Test training network
+python training/test_policy.py \
+    --checkpoint checkpoints/ppo_checkpoint_100.pt \
+    --episodes 50 \
+    --save-results results/ppo_network.json
+
+# Test ROS agent
+python test_ros_agent.py \
+    --policy-dir policies/trained_ppo \
+    --episodes 50 \
+    --save-results results/ros_agent.json
+
+# Compare results
+python -c "
+import json
+with open('results/ppo_network.json') as f:
+    ppo = json.load(f)
+with open('results/ros_agent.json') as f:
+    ros = json.load(f)
+print('PPO Network Win Rate:', ppo['win_rate'])
+print('ROS Agent Win Rate:', ros['win_rate'])
+"
+```
+
+## ✅ Quick Validation Checklist
+
+Before deploying to ROS:
+
+- [ ] Trained model achieves >70% win rate (Option 3)
+- [ ] Converted to ROS format (Option 6)
+- [ ] ROS agent tested successfully (Option 4)
+- [ ] ROS agent win rate similar to training network
+- [ ] Visualization shows good gameplay
+- [ ] No errors during testing
+
+Now you're ready to deploy! 🚀
