@@ -98,3 +98,10 @@ python training/convert_ppo_to_ros.py --checkpoint checkpoints/ppo_checkpoint_10
 ```
 
 For detailed training documentation, see [TRAINING.md](TRAINING.md)
+
+
+cd /mnt/c/Users/galsa/source/repos/AirHockey/GStech-code-Competitive-Air-Hockey-multi-social-Agents
+
+source .venv/bin/activate
+
+./quickstart.sh

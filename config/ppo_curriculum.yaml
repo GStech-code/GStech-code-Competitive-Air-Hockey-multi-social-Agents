@@ -36,8 +36,8 @@ phase_1:
     approach_puck_in_half: 0.2
     close_to_puck: 0.5
     puck_velocity_toward_goal: 0.0  # Not yet ready for this
-    defensive_position: 0.1
-    center_coverage: 0.1
+    defensive_position: 0.0 # Reduced from 0.1
+    center_coverage: 0.0 # Reduced from 0.1
     action_penalty: 0.001
     unnecessary_movement: 0.0
     teammate_collision: 0.5
@@ -57,8 +57,8 @@ phase_2:
     approach_puck_in_half: 0.2        # Increased from 0.1
     close_to_puck: 0.5                # Increased from 0.3
     puck_velocity_toward_goal: 5.0    # Increased from 2.0 - MAIN FOCUS
-    defensive_position: 0.1           # Reduced from 0.2
-    center_coverage: 0.05             # Reduced from 0.1
+    defensive_position: 0.0           # Reduced from 0.2
+    center_coverage: 0.00             # Reduced from 0.1
     action_penalty: 0.001             # Reduced from 0.002
     unnecessary_movement: 0.0
     teammate_collision: 0.1           # Reduced from 0.2
