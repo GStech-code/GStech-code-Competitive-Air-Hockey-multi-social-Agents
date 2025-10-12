@@ -33,14 +33,14 @@ phase_1:
   ent_coef: 0.15  # High exploration
   clip_range: 0.2
   rewards:
-    approach_puck_in_half: 0.2
-    close_to_puck: 0.5
+    approach_puck_in_half: 4.0 # Increased from 2.0
+    close_to_puck: 2.5 # Increased from 0.5
     puck_velocity_toward_goal: 0.0  # Not yet ready for this
     defensive_position: 0.0 # Reduced from 0.1
     center_coverage: 0.0 # Reduced from 0.1
     action_penalty: 0.001
     unnecessary_movement: 0.0
-    teammate_collision: 0.5
+    teammate_collision: 0.1 # Reduced from 0.5
 
 # Phase 2: Puck Hitting
 # Focus: Learn to hit the puck toward opponent's goal
@@ -54,7 +54,7 @@ phase_2:
   ent_coef: 0.10
   clip_range: 0.2
   rewards:
-    approach_puck_in_half: 0.2        # Increased from 0.1
+    approach_puck_in_half: 0.4        # Increased from 0.1
     close_to_puck: 0.5                # Increased from 0.3
     puck_velocity_toward_goal: 5.0    # Increased from 2.0 - MAIN FOCUS
     defensive_position: 0.0           # Reduced from 0.2
@@ -75,11 +75,11 @@ phase_3:
   ent_coef: 0.05
   clip_range: 0.2
   rewards:
-    approach_puck_in_half: 0.2        # Increased from 0.1
+    approach_puck_in_half: 0.3        # Increased from 0.1
     close_to_puck: 0.4                # Increased from 0.2
-    puck_velocity_toward_goal: 3.0    # Increased from 1.5 - KEEP OFFENSE STRONG
-    defensive_position: 0.2           # Reduced from 0.3
-    center_coverage: 0.2              # Reduced from 0.3
+    puck_velocity_toward_goal: 5.0    # Increased from 1.5 - KEEP OFFENSE STRONG
+    defensive_position: 0.15           # Reduced from 0.3
+    center_coverage: 0.15              # Reduced from 0.3
     action_penalty: 0.001             # Reduced from 0.002
     unnecessary_movement: 0.005       # Reduced from 0.01
     teammate_collision: 0.2           # Reduced from 0.3
@@ -96,11 +96,11 @@ phase_4:
   ent_coef: 0.02
   clip_range: 0.2
   rewards:
-    approach_puck_in_half: 0.3        # Increased from 0.15
+    approach_puck_in_half: 0.4        # Increased from 0.15
     close_to_puck: 0.5                # Increased from 0.25
-    puck_velocity_toward_goal: 4.0    # Increased from 1.5 - STRONG OFFENSE
-    defensive_position: 0.15          # Reduced from 0.2
-    center_coverage: 0.15             # Kept at 0.2
+    puck_velocity_toward_goal: 5.0    # Increased from 1.5 - STRONG OFFENSE
+    defensive_position: 0.10          # Reduced from 0.2
+    center_coverage: 0.10             # Kept at 0.2
     action_penalty: 0.0005            # Reduced from 0.001
     unnecessary_movement: 0.002       # Reduced from 0.005
     teammate_collision: 0.2           # Reduced from 0.4
