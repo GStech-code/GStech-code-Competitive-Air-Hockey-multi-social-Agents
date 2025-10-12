@@ -64,9 +64,6 @@ class AgentPPOWrapper:
       - per-agent heads: logits_x (3), logits_y (3), value (1)
     It caches (feat, ax, ay, logp, value) for PPO.
 
-    If mirror_xy is True (Team B), we flip X in:
-      - features (puck_x/agent_x signs)
-      - returned command dx (dy unchanged)
     """
     def __init__(
         self,
@@ -78,9 +75,9 @@ class AgentPPOWrapper:
         opponent_ids: List[int],
         shared_core: MultiAgentPaddleNet,
         device: str = "cpu",
-        mirror_xy: bool = False,
     ):
         self.agent_id = int(agent_id)
+        self.half_line = width / 2.0
         self.inv_w = 1.0 / float(width)
         self.inv_h = 1.0 / float(height)
         self.inv_v = 1.0 / float(max_speed)
@@ -98,7 +95,6 @@ class AgentPPOWrapper:
         self.v_head = _ValueHead(feat_dim, hid=64).to(self.device)
 
         self.training_mode = False
-        self.mirror_xy = bool(mirror_xy)
 
         # PPO caches (torch tensors on device unless stated)
         self.last_feat: Optional[torch.Tensor] = None   # [1, F]
@@ -156,10 +152,14 @@ class AgentPPOWrapper:
         self.training_mode = bool(on)
         if on:
             self.core.train()
-            self.head_x.train(); self.head_y.train(); self.v_head.train()
+            self.head_x.train()
+            self.head_y.train()
+            self.v_head.train()
         else:
             self.core.eval()
-            self.head_x.eval(); self.head_y.eval(); self.v_head.eval()
+            self.head_x.eval()
+            self.head_y.eval()
+            self.v_head.eval()
 
     # ----- Params for optimizer -----
     def parameters(self):
@@ -178,12 +178,6 @@ class AgentPPOWrapper:
         py = ws["puck_y"] * self.inv_h
         pvx = ws["puck_vx"] * self.inv_v
         pvy = ws["puck_vy"] * self.inv_v
-
-        # Mirror X if team B (so policy always "sees" attack from left-to-right)
-        if self.mirror_xy:
-            ax = [-x for x in ax]
-            px = -px
-            pvx = -pvx
 
         sx = ax[self.agent_id]; sy = ay[self.agent_id]
         self_xy = np.array([sx, sy], dtype=np.float32)
@@ -247,31 +241,30 @@ class AgentPPOWrapper:
 class TeamPPOWrapper:
     def __init__(
         self,
-        team_side: str,                 # 'A' or 'B'
         agent_ids: List[int],
         width: float, height: float, max_speed: float,
         teammates_lists: List[List[int]],
         opponents_list: List[int],
         device: str = "cpu",
     ):
-        self.team_side = team_side
-        self.agent_ids = agent_ids
         self.device = device
+        self.core = MultiAgentPaddleNet(
+            number_teammates=0, number_opponents=0, device_name=device
+        )
+        self.reset(agent_ids, width, height, max_speed, teammates_lists, opponents_list)
 
+    def reset(self, agent_ids, width, height, max_speed, teammates_lists, opponents_list):
+        self.agent_ids = agent_ids
         T = len(teammates_lists[0]) if teammates_lists else 0
         O = len(opponents_list) if opponents_list else 0
-        self.core = MultiAgentPaddleNet(
-            number_teammates=T, number_opponents=O, device=device
-        ).to(device)
-
-        mirror = (team_side == 'B')
+        self.core.reset_num_agents(T, O)
         self.policies: List[AgentPPOWrapper] = []
         for agent_id, tmates in zip(agent_ids, teammates_lists):
             pol = AgentPPOWrapper(
                 agent_id=agent_id,
                 width=width, height=height, max_speed=max_speed,
                 teammate_ids=tmates, opponent_ids=opponents_list,
-                shared_core=self.core, device=device, mirror_xy=mirror,
+                shared_core=self.core, device=self.device
             )
             self.policies.append(pol)
 

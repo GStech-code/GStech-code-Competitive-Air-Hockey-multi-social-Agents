@@ -44,41 +44,20 @@ class RosMock:
     # ---------- Team views (mirrors what GameManagerNode does) ----------
     def _transform_for_team_b(self, ws: Dict) -> Dict:
         # Based on transform_world_state mirroring in game_manager_node.py (no stamps). :contentReference[oaicite:5]{index=5}
-        puck_x = self.width - ws['puck_x']
-        puck_y = self.height - ws['puck_y']
         return dict(
             team_a_score=ws['team_a_score'],
             team_b_score=ws['team_b_score'],
-            puck_x=puck_x,
-            puck_y=puck_y,
-            puck_vx=-ws.get('puck_vx', 0.0),
-            puck_vy=-ws.get('puck_vy', 0.0),
+            puck_x=self.width - ws['puck_x'],
+            puck_y=self.height - ws['puck_y'],
+            puck_vx=-ws['puck_vx'],
+            puck_vy=-ws['puck_vy'],
             agent_x=[self.width - x for x in ws['agent_x']],
             agent_y=[self.height - y for y in ws['agent_y']],
         )
 
     def _world_state_for_team(self, ws: Dict) -> Tuple[Dict, Dict]:
         # A: identity, B: mirrored (no stamp fields)
-        return (
-            dict(
-                team_a_score=ws['team_a_score'],
-                team_b_score=ws['team_b_score'],
-                puck_x=ws['puck_x'],
-                puck_y=ws['puck_y'],
-                puck_vx=ws.get('puck_vx', 0.0),
-                puck_vy=ws.get('puck_vy', 0.0),
-                agent_x=list(ws['agent_x']),
-                agent_y=list(ws['agent_y']),
-            ),
-            self._transform_for_team_b(ws),
-        )
-
-    # ---------- Command helpers ----------
-    def val_command(self, agent_id: int, vx: float, vy: float) -> Tuple[int, float, float]:
-        # Mirrors command_to_tuple logic from node. :contentReference[oaicite:6]{index=6}
-        if self.reverse_action_map.get(agent_id, False):
-            return (agent_id, -vx, -vy)
-        return (agent_id, vx, vy)
+        return ws, self._transform_for_team_b(ws)
 
     # ---------- Public API ----------
     def reset(self,
@@ -136,22 +115,22 @@ class RosMock:
                 cmds.append((aid, -vx, -vy))
         else:
             Exec = ThreadPoolExecutor if self.parallel == "thread" else ProcessPoolExecutor
+
+            def _call_update(pol, state, aid, flip):
+                vx, vy = pol.update(state)
+                if flip:
+                    return aid, -vx, vy
+                return aid, vx, vy
+
             with Exec(max_workers=self.max_workers) as ex:
-                futs = []
+                jobs = []
                 for i, pol in enumerate(self.team_a_policies):
-                    futs.append(ex.submit(lambda p=pol, s=ws_a: p.update(s)))
+                    jobs.append((pol, ws_a, i, False))
                 for j, pol in enumerate(self.team_b_policies):
-                    futs.append(ex.submit(lambda p=pol, s=ws_b: p.update(s)))
-                # Collect in order of completion; map back to agent ids
-                idx = 0
-                for f in as_completed(futs):
-                    vx, vy = f.result()
-                    if idx < self.num_agents_team_a:
-                        aid = idx
-                    else:
-                        aid = self.num_agents_team_a + (idx - self.num_agents_team_a)
-                    cmds.append(self.val_command(aid, vx, vy))
-                    idx += 1
+                    jobs.append((pol, ws_b, self.num_agents_team_a + j, True))
+
+                for aid, vx, vy in ex.map(lambda args: _call_update(*args), jobs):
+                    cmds.append((aid, vx, vy))
 
         # Apply to sim and return the new state
         self.sim.apply_commands(cmds)

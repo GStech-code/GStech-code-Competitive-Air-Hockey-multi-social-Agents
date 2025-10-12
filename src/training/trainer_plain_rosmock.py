@@ -37,10 +37,8 @@ def train(ros_mock, orchestrator, config: Dict[str, Any]):
     # Persistent wrappers & init flags (so we don't re-initialize every episode)
     teamA_wrap: Optional[TeamPPOWrapper] = None
     teamB_wrap: Optional[TeamPPOWrapper] = None
-    did_init_A = False
-    did_init_B = False
-    last_shape_A = None  # (na,)
-    last_shape_B = None  # (nb,)
+    last_policies_A = None
+    last_policies_B = None
 
     for ep in range(total_episodes):
         # ---- Episode setup via orchestrator ----
@@ -82,32 +80,36 @@ def train(ros_mock, orchestrator, config: Dict[str, Any]):
         # ---- Build or reuse wrappers for trainable sides ----
         # Team A
         if train_A:
-            need_new_A = (teamA_wrap is None) or (last_shape_A != (na,))
+            need_new_A = teamA_wrap is None
             if need_new_A:
-                teamA_wrap = TeamPPOWrapper('A', ids_a, width, height, max_speed,
+                teamA_wrap = TeamPPOWrapper(ids_a, width, height, max_speed,
                                             tmates_a, opps_a, device=str(device))
-                last_shape_A = (na,)
                 # one-time initialization
-                if not did_init_A:
-                    _apply_initialization(teamA_wrap, config.get("init_teamA", {}), ros_mock)
-                    did_init_A = True
-            ros_mock.team_a_policies = teamA_wrap.policies  # replace with wrappers
+                _init_train_neural_team(teamA_wrap, config.get("init_teamA", {}), ros_mock)
+            else:
+                teamA_wrap.reset(ids_a, width, height, max_speed, tmates_a, opps_a)
+                _rehydrate_episode_agents_from_prev(teamA_wrap, last_policies_A)
+            last_policies_A = teamA_wrap.policies
+            ros_mock.team_a_policies = last_policies_A  # replace with wrappers
 
         # Team B
         if train_B:
-            need_new_B = (teamB_wrap is None) or (last_shape_B != (nb,))
+            need_new_B = teamB_wrap is None
             if need_new_B:
-                teamB_wrap = TeamPPOWrapper('B', ids_b, width, height, max_speed,
+                teamB_wrap = TeamPPOWrapper(ids_b, width, height, max_speed,
                                             tmates_b, opps_b, device=str(device))
-                last_shape_B = (nb,)
-                if not did_init_B:
-                    _apply_initialization(teamB_wrap, config.get("init_teamB", {}), ros_mock)
-                    did_init_B = True
-            ros_mock.team_b_policies = teamB_wrap.policies
+                _init_train_neural_team(teamB_wrap, config.get("init_teamB", {}), ros_mock)
+            else:
+                teamB_wrap.reset(ids_b, width, height, max_speed, tmates_b, opps_b)
+                _rehydrate_episode_agents_from_prev(teamB_wrap, last_policies_B)
+            last_policies_B = teamB_wrap.policies
+            ros_mock.team_b_policies = last_policies_B
 
         # Toggle train mode
-        if teamA_wrap and train_A: teamA_wrap.set_train_mode(True)
-        if teamB_wrap and train_B: teamB_wrap.set_train_mode(True)
+        if teamA_wrap and train_A:
+            teamA_wrap.set_train_mode(True)
+        if teamB_wrap and train_B:
+            teamB_wrap.set_train_mode(True)
 
         # Reward shaping
         rw = orchestrator.reward_weights_for(game)
@@ -122,7 +124,6 @@ def train(ros_mock, orchestrator, config: Dict[str, Any]):
         ws = ros_mock.sim.get_world_state()
         last_a, last_b = int(ws.get("team_a_score", 0)), int(ws.get("team_b_score", 0))
 
-        steps = 0
         for _ in range(max_steps):
             ws = ros_mock.step()
             a, b = int(ws.get("team_a_score", 0)), int(ws.get("team_b_score", 0))
@@ -144,7 +145,6 @@ def train(ros_mock, orchestrator, config: Dict[str, Any]):
                     _push_step(traj_B[j], pol.last_feat, pol.last_ax, pol.last_ay,
                                pol.last_logp, pol.last_value, rB)
 
-            steps += 1
             if a >= goal_limit or b >= goal_limit:
                 break
 
@@ -155,7 +155,10 @@ def train(ros_mock, orchestrator, config: Dict[str, Any]):
             traj_B = _finalize_traj(traj_B)
             _ppo_update(teamB_wrap, traj_B, device, ppo)
 
-        print(f"EP {ep+1}/{total_episodes}  steps={steps}  score A:{last_a} B:{last_b}")
+        if train_A and train_B and teamA_wrap and teamB_wrap:
+            _fuse_cores(teamA_wrap.core, teamB_wrap.core, tau=(nb / (na + nb)))
+
+        print(f"EP {ep+1}/{total_episodes}  steps={max_steps}  score A:{last_a} B:{last_b}")
 
         if ckpt_every and ((ep + 1) % ckpt_every == 0):
             _save_ckpt(teamA_wrap, teamB_wrap, output_dir, ep + 1)
@@ -167,67 +170,91 @@ def train(ros_mock, orchestrator, config: Dict[str, Any]):
 
 
 # ───────────────────────── initialization (one-time per team) ─────────────────────────
-
-def _apply_initialization(team_wrap: TeamPPOWrapper, init_cfg: Dict[str, Any], ros_mock):
-    """
-    Execute only the steps present in init_cfg; called ONCE per team.
-      load_ckpt: "path.pt"        # optional; skipped if not set or not found
-      rand_std: 0.01              # optional; 0 or omit = no randomization
-      include_core: true|false    # whether to noise the shared encoder as well
-      teach:
-        enabled: true|false
-        iters: 64
-        lr: 0.001
-    """
+def _init_train_neural_team(team_wrap, init_cfg: Dict[str, Any], ros_mock):
+    """Run only when the team's core is first created."""
     if not team_wrap or not init_cfg:
         return
-
-    # 1) load
+    # 1) load CORE (ignore heads here)
     ckpt = init_cfg.get("load_ckpt")
-    if ckpt:
-        if os.path.exists(ckpt):
-            _load_team_checkpoint(team_wrap, ckpt)
-            print(f"[init] Loaded {ckpt}")
-        else:
-            print(f"[init] Skip load (not found): {ckpt}")
+    if ckpt and os.path.exists(ckpt):
+        sd = torch.load(ckpt, map_location="cpu")
+        core_sd = sd["core"] if "core" in sd else sd
+        team_wrap.core.load_state_dict(core_sd, strict=True)
+        print(f"[init-core] Loaded {ckpt}")
+    elif ckpt:
+        print(f"[init-core] Skip load (not found): {ckpt}")
 
-    # 2) randomize (after load, if any)
-    std = float(init_cfg.get("rand_std", 0.0) or 0.0)
-    if std > 0.0:
-        _randomize_team_params(team_wrap, std, include_core=bool(init_cfg.get("include_core", True)))
-        print(f"[init] Randomized params: std={std} include_core={init_cfg.get('include_core', True)}")
+    # 2) randomize CORE only (tiny noise)
+    std_core = float(init_cfg.get("rand_std_core", init_cfg.get("rand_std", 0.0)) or 0.0)
+    if std_core > 0.0:
+        with torch.no_grad():
+            for p in team_wrap.core.parameters():
+                p.add_(std_core * torch.randn_like(p))
+        print(f"[init-core] Randomized core: std={std_core}")
 
-    # 3) teach warmup (optional)
+    # 3) optional quick teach (affects core+heads)
     teach = init_cfg.get("teach", {})
     if teach.get("enabled", False):
         _supervised_teach_hit_puck(team_wrap, ros_mock,
                                    iters=int(teach.get("iters", 64)),
                                    lr=float(teach.get("lr", 1e-3)))
-        print(f"[teach] Hit-puck warmup: iters={teach.get('iters', 64)} lr={teach.get('lr', 1e-3)}")
+        print(f"[teach] Warmup: iters={teach.get('iters', 64)} lr={teach.get('lr', 1e-3)}")
 
+    """
+    First-time heads init only.
+    Priority:
+      (a) load heads from ckpt (if present),
+      (b) else randomize heads (small std),
+      (c) else leave default init.
+    """
+    # (a) heads from checkpoint
+    ckpt = init_cfg.get("load_ckpt")
+    if ckpt and os.path.exists(ckpt):
+        sd = torch.load(ckpt, map_location="cpu")
+        by_id = {p.agent_id: p for p in team_wrap.policies}
+        loaded = 0
+        for h in sd.get("heads", []):
+            aid = int(h["agent_id"])
+            pol = by_id.get(aid)
+            if pol:
+                pol.head_x.load_state_dict(h["head_x"], strict=True)
+                pol.head_y.load_state_dict(h["head_y"], strict=True)
+                pol.v_head.load_state_dict(h["v_head"], strict=True)
+                loaded += 1
+        if loaded:
+            print(f"[init-heads] Loaded heads for {loaded} agent(s) from {ckpt}.")
+            return
 
-def _load_team_checkpoint(team_wrap: TeamPPOWrapper, ckpt_path: str, strict: bool = True):
-    sd = torch.load(ckpt_path, map_location="cpu")
-    if "core" in sd:
-        team_wrap.core.load_state_dict(sd["core"], strict=strict)
-    by_id = {p.agent_id: p for p in team_wrap.policies}
-    for h in sd.get("heads", []):
-        aid = int(h["agent_id"])
-        pol = by_id.get(aid)
-        if pol:
-            pol.head_x.load_state_dict(h["head_x"], strict=strict)
-            pol.head_y.load_state_dict(h["head_y"], strict=strict)
-            pol.v_head.load_state_dict(h["v_head"], strict=strict)
+    # (b) small randomization for heads (first time only)
+    std_heads = float(init_cfg.get("rand_std_heads", init_cfg.get("rand_std", 0.0)) or 0.0)
+    if std_heads > 0.0:
+        with torch.no_grad():
+            for p in team_wrap.policies:
+                for t in list(p.head_x.parameters()) + list(p.head_y.parameters()) + list(p.v_head.parameters()):
+                    t.add_(std_heads * torch.randn_like(t))
+        print(f"[init-heads] Randomized heads: std={std_heads}")
 
-def _randomize_team_params(team_wrap: TeamPPOWrapper, std: float, include_core: bool = True):
-    with torch.no_grad():
-        if include_core:
-            for p in team_wrap.core.parameters():
-                p.add_(std * torch.randn_like(p))
-        for pol in team_wrap.policies:
-            for p in pol.head_x.parameters(): p.add_(std * torch.randn_like(p))
-            for p in pol.head_y.parameters(): p.add_(std * torch.randn_like(p))
-            for p in pol.v_head.parameters():  p.add_(std * torch.randn_like(p))
+def _rehydrate_episode_agents_from_prev(team_wrap, last_policies):
+    """
+    Per-episode: copy heads from previous episode by agent_id.
+    No loading/jitter here.
+    """
+    len_current = len(team_wrap.policies)
+    len_prev = len(last_policies)
+    if len_current > len_prev:
+        for i in range(len_prev, len_current):
+            last_policies.append(last_policies[i % len_prev])
+    elif len_current < len_prev:
+        last_policies = last_policies[:len_current]
+
+    copied = 0
+    for p, q in zip(team_wrap.policies, last_policies):
+        p.head_x.load_state_dict(q.head_x.state_dict(), strict=True)
+        p.head_y.load_state_dict(q.head_y.state_dict(), strict=True)
+        p.v_head.load_state_dict(q.v_head.state_dict(),   strict=True)
+        copied += 1
+    if copied:
+        print(f"[agents] Copied heads for {copied} agent(s) from previous episode.")
 
 def _supervised_teach_hit_puck(team_wrap: TeamPPOWrapper, ros_mock, iters: int = 64, lr: float = 1e-3):
     """
@@ -427,3 +454,12 @@ def _save_ckpt(teamA: Optional[TeamPPOWrapper], teamB: Optional[TeamPPOWrapper],
         }, os.path.join(directory, f"{tag}_ep{ep}.pt"))
     save_team(teamA, "teamA")
     save_team(teamB, "teamB")
+
+def _fuse_cores(core_a, core_b, tau: float = 0.5):
+    """EMA-style in-place merge of both encoders' weights (and buffers)."""
+    with torch.no_grad():
+        sa, sb = core_a.state_dict(), core_b.state_dict()
+        for k in sa.keys():
+            m = (1.0 - tau) * sa[k] + tau * sb[k]
+            sa[k].copy_(m)
+            sb[k].copy_(m)

@@ -6,7 +6,6 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-
 class PerAgentEncoder(nn.Module):
     """
     Shared MLP for each non-self agent slot.
@@ -54,23 +53,20 @@ class MultiAgentPaddleNet(nn.Module):
       opp_feats: [B, O, 5]        (dx_s,dy_s,dx_p,dy_p,is_tm=0)
       opp_mask:  [B, O]           1 if slot is real, else 0
 
-    Output: tanh in [-1,1]^2  (dx, dy)
     """
-
     def __init__(
         self,
         number_teammates: int,
         number_opponents: int,
-        device: str = "cpu",
+        device_name: str = "cpu",
         per_agent_dim: int = 5,
         per_agent_embed: int = 32,
         head_hidden1: int = 128,
         head_hidden2: int = 64,
     ):
         super().__init__()
-        self.device = torch.device(device)
-        self.team_mask=self.to_t(np.ones((number_teammates,), dtype=np.float32))
-        self.opp_mask=self.to_t(np.ones((number_opponents,), dtype=np.float32))
+        self.device_name = device_name
+        self.device = torch.device(device_name)
 
         self.per_agent_embed = per_agent_embed
         # Shared encoder (ally/opponent use the same encoder)
@@ -78,18 +74,7 @@ class MultiAgentPaddleNet(nn.Module):
                                    hid=per_agent_embed,
                                    out_dim=per_agent_embed)
 
-        if number_teammates == 0:
-            if number_opponents == 0:
-                self.null_team = torch.zeros(1, 2 * per_agent_embed, device=device)
-                self.forward_struct = self.null_full_forward_struct
-            else:
-                self.null_team = torch.zeros(1, per_agent_embed, device=device)
-                self.forward_struct = self.null_team_forward_struct
-        elif number_opponents == 0:
-            self.null_team = torch.zeros(1, per_agent_embed, device=device)
-            self.forward_struct = self.null_opp_forward_struct
-        else:
-            self.forward_struct = self.full_forward_struct
+        self.reset_num_agents(number_teammates, number_opponents)
 
         # Policy head: [self(2) + puck(4) + team(32) + opp(32)] = 70
         head_in = 2 + 4 + per_agent_embed + per_agent_embed
@@ -103,6 +88,23 @@ class MultiAgentPaddleNet(nn.Module):
 
         self._init()
         self.to(self.device)
+
+    def reset_num_agents(self, number_teammates, number_opponents):
+        self.team_mask = self.to_t(np.ones((number_teammates,), dtype=np.float32))
+        self.opp_mask = self.to_t(np.ones((number_opponents,), dtype=np.float32))
+
+        if number_teammates == 0:
+            if number_opponents == 0:
+                self.null_team = torch.zeros(1, 2 * self.per_agent_embed, device=self.device_name)
+                self.forward_struct = self.null_full_forward_struct
+            else:
+                self.null_team = torch.zeros(1, self.per_agent_embed, device=self.device_name)
+                self.forward_struct = self.null_team_forward_struct
+        elif number_opponents == 0:
+            self.null_team = torch.zeros(1, self.per_agent_embed, device=self.device_name)
+            self.forward_struct = self.null_opp_forward_struct
+        else:
+            self.forward_struct = self.full_forward_struct
 
     def to_t(self, x):
         return torch.as_tensor(x, dtype=torch.float32, device=self.device).unsqueeze(0)
