@@ -1,0 +1,132 @@
+# PPO Curriculum Learning Configuration
+# Complete 5-Phase Progressive Training System
+
+# Shared settings for all phases
+shared:
+  n_steps: 2048
+  batch_size: 64
+  n_epochs: 10
+  gamma: 0.99
+  gae_lambda: 0.95
+  clip_range: 0.2
+  clip_range_vf: null
+  vf_coef: 0.5
+  max_grad_norm: 0.5
+  num_agents_team_a: 2
+  num_agents_team_b: 2
+  device: "cpu"
+  hidden_dim: 128
+  log_interval: 10
+  save_interval: 50
+  checkpoint_dir: "checkpoints"
+  log_dir: "logs"
+
+# Phase 1: Basic Movement
+# Focus: Learn to move around and approach the puck
+phase_1:
+  name: "basic_movement"
+  timesteps: 100000
+  opponent_type: "static"
+  max_score: 2  # Very quick episodes
+  max_steps: 900  # 15 seconds
+  learning_rate: 0.001
+  ent_coef: 0.15  # High exploration
+  clip_range: 0.2
+  rewards:
+    approach_puck_in_half: 4.0 # Increased from 2.0
+    close_to_puck: 2.5 # Increased from 0.5
+    puck_velocity_toward_goal: 0.0  # Not yet ready for this
+    defensive_position: 0.0 # Reduced from 0.1
+    center_coverage: 0.0 # Reduced from 0.1
+    action_penalty: 0.001
+    unnecessary_movement: 0.0
+    teammate_collision: 0.1 # Reduced from 0.5
+
+# Phase 2: Puck Hitting
+# Focus: Learn to hit the puck toward opponent's goal
+phase_2:
+  name: "puck_hitting"
+  timesteps: 200000
+  opponent_type: "random"
+  max_score: 3
+  max_steps: 1200
+  learning_rate: 0.0005
+  ent_coef: 0.10
+  clip_range: 0.2
+  rewards:
+    approach_puck_in_half: 0.4        # Increased from 0.1
+    close_to_puck: 0.5                # Increased from 0.3
+    puck_velocity_toward_goal: 5.0    # Increased from 2.0 - MAIN FOCUS
+    defensive_position: 0.0           # Reduced from 0.2
+    center_coverage: 0.00             # Reduced from 0.1
+    action_penalty: 0.001             # Reduced from 0.002
+    unnecessary_movement: 0.0
+    teammate_collision: 0.1           # Reduced from 0.2
+
+# Phase 3: Defensive Strategy
+# Focus: Balance offense with defensive positioning
+phase_3:
+  name: "defensive_strategy"
+  timesteps: 300000
+  opponent_type: "simple"
+  max_score: 3
+  max_steps: 1200
+  learning_rate: 0.0003
+  ent_coef: 0.05
+  clip_range: 0.2
+  rewards:
+    approach_puck_in_half: 0.3        # Increased from 0.1
+    close_to_puck: 0.4                # Increased from 0.2
+    puck_velocity_toward_goal: 5.0    # Increased from 1.5 - KEEP OFFENSE STRONG
+    defensive_position: 0.15           # Reduced from 0.3
+    center_coverage: 0.15              # Reduced from 0.3
+    action_penalty: 0.001             # Reduced from 0.002
+    unnecessary_movement: 0.005       # Reduced from 0.01
+    teammate_collision: 0.2           # Reduced from 0.3
+
+# Phase 4: Refinement (FIXED)
+# Focus: Polish all skills, avoid over-defensiveness
+phase_4:
+  name: "refinement"
+  timesteps: 300000  # Reduced from 400K
+  opponent_type: "mixed"
+  max_score: 3
+  max_steps: 1200
+  learning_rate: 0.0001
+  ent_coef: 0.02
+  clip_range: 0.2
+  rewards:
+    approach_puck_in_half: 0.4        # Increased from 0.15
+    close_to_puck: 0.5                # Increased from 0.25
+    puck_velocity_toward_goal: 5.0    # Increased from 1.5 - STRONG OFFENSE
+    defensive_position: 0.10          # Reduced from 0.2
+    center_coverage: 0.10             # Kept at 0.2
+    action_penalty: 0.0005            # Reduced from 0.001
+    unnecessary_movement: 0.002       # Reduced from 0.005
+    teammate_collision: 0.2           # Reduced from 0.4
+
+# Phase 5: Offensive Push ⭐ EXTREME OFFENSIVE FOCUS
+# Focus: FORCE aggressive scoring by making offensive rewards >> penalties
+phase_5:
+  name: "offensive_push"
+  timesteps: 200000  # Reduced from 300K for faster iteration
+  opponent_type: "static"  # Start with easier opponent
+  max_score: 5
+  max_steps: 1200  # Reduced from 1800 to force faster action
+  learning_rate: 0.0003  # Increased for faster learning
+  ent_coef: 0.05  # More exploration
+  clip_range: 0.2
+  rewards:
+    # EXTREME OFFENSIVE SETTINGS (10x multiplier)
+    approach_puck_in_half: 1.0        # 3x increase (was 0.3)
+    close_to_puck: 2.0                # 4x increase (was 0.5)
+    puck_velocity_toward_goal: 10.0   # 3.3x increase (was 3.0) - DOMINANT REWARD
+    
+    # DISABLED DEFENSIVE SETTINGS (no distraction from offense)
+    defensive_position: 0.0           # DISABLED (was 0.15)
+    center_coverage: 0.0              # DISABLED (was 0.15)
+    
+    # DISABLED PENALTIES (remove all friction)
+    action_penalty: 0.0               # DISABLED (was 0.0005)
+    unnecessary_movement: 0.0         # DISABLED (was 0.002)
+    teammate_collision: 0.02          # Minimal (was 0.2) - 10x reduction

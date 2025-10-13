@@ -75,6 +75,8 @@ class AirHockeyEnv:
         self.num_team_a = config.num_agents_team_a
         self.num_team_b = config.num_agents_team_b
         self.num_agents = self.num_team_a + self.num_team_b
+        self.prev_actions = np.zeros((self.num_team_a, 2), dtype=np.float32)
+        self.action_smooth_factor = 0.3  # Blend 30% of previous action
         
         # Observation/action space info
         self.obs_dim = self._get_obs_dim()
@@ -97,6 +99,7 @@ class AirHockeyEnv:
     def reset(self) -> np.ndarray:
         """Reset environment and return initial observations"""
         self.engine.reset(self.num_team_a, self.num_team_b)
+        self.prev_actions = np.zeros((self.num_team_a, 2), dtype=np.float32)  # Reset smoothing
         return self._get_observations()
     
     def step(self, actions: np.ndarray) -> Tuple[np.ndarray, np.ndarray, np.ndarray, Dict]:
@@ -104,14 +107,28 @@ class AirHockeyEnv:
         Step environment with actions
         
         Args:
-            actions: (n_agents, 2) array of continuous actions in [-1, 1]
+            actions: (n_agents_total, 2) array of continuous actions in [-1, 1]
+                    First num_team_a rows are Team A, rest are Team B
         
         Returns:
             observations, rewards, dones, info
         """
+        # Only smooth Team A's actions (the ones being trained)
+        team_a_actions = actions[:self.num_team_a]
+        smoothed_team_a = (1 - self.action_smooth_factor) * team_a_actions + \
+                        self.action_smooth_factor * self.prev_actions
+        self.prev_actions = smoothed_team_a.copy()
+        
+        # Combine smoothed Team A with unsmoothed Team B (opponents)
+        if actions.shape[0] > self.num_team_a:
+            team_b_actions = actions[self.num_team_a:]
+            all_actions = np.vstack([smoothed_team_a, team_b_actions])
+        else:
+            all_actions = smoothed_team_a
+        
         # Convert continuous actions to discrete commands
         commands = []
-        for i, action in enumerate(actions):
+        for i, action in enumerate(all_actions):
             vx = self._discretize(action[0])
             vy = self._discretize(action[1])
             commands.append((i, vx, vy))
@@ -122,7 +139,7 @@ class AirHockeyEnv:
         new_state = self.engine.get_world_state()
         
         obs = self._get_observations()
-        rewards = self._compute_rewards(prev_state, new_state, actions)
+        rewards = self._compute_rewards(prev_state, new_state, team_a_actions)  # Only Team A actions
         dones = self._check_done(new_state)
         info = {'scores': self.engine.get_scores()}
         
@@ -130,9 +147,10 @@ class AirHockeyEnv:
     
     def _discretize(self, val: float) -> int:
         """Convert continuous action to discrete {-1, 0, 1}"""
-        if val > 0.33:
+        # Wider deadzone to reduce jitter
+        if val > 0.5:  # Changed from 0.33
             return 1
-        elif val < -0.33:
+        elif val < -0.5:
             return -1
         return 0
     
@@ -188,86 +206,85 @@ class AirHockeyEnv:
         """Compute shaped rewards for Team A agents"""
         rewards = np.zeros(self.num_team_a, dtype=np.float32)
         
-        # Goal rewards
+        # 1. GOAL REWARDS (sparse but important)
+        goal_reward = 0.0
         if new_state['team_a_score'] > prev_state['team_a_score']:
-            rewards += 10.0  # Team scored
+            goal_reward = 100.0  # Increased significantly
         if new_state['team_b_score'] > prev_state['team_b_score']:
-            rewards -= 10.0  # Opponent scored
+            goal_reward = -100.0
         
-        # Distance-based shaping rewards
+        rewards += goal_reward
+        
+        # 2. PUCK PROXIMITY REWARD (encourage approaching puck)
+        puck_x = new_state['puck_x']
+        puck_y = new_state['puck_y']
+        
         for i in range(self.num_team_a):
-            # Reward for being close to puck (defensive positioning)
-            dist_to_puck = np.hypot(
-                new_state['agent_x'][i] - new_state['puck_x'],
-                new_state['agent_y'][i] - new_state['puck_y']
-            )
-            rewards[i] += -0.001 * dist_to_puck
+            agent_x = new_state['agent_x'][i]
+            agent_y = new_state['agent_y'][i]
             
-            # Penalty for being too far right (should defend left side)
-            if new_state['agent_x'][i] > self.engine.width * 0.55:
-                rewards[i] -= 0.02
+            # Distance to puck
+            dist_to_puck = np.hypot(agent_x - puck_x, agent_y - puck_y)
             
-            # Small action penalty for energy efficiency
-            action_penalty = 0.001 * (np.abs(actions[i]).sum())
-            rewards[i] -= action_penalty
+            # Reward for being close to puck (normalized)
+            max_dist = np.hypot(self.engine.width, self.engine.height)
+            proximity_reward = 0.5 * (1.0 - dist_to_puck / max_dist)
+            rewards[i] += proximity_reward
             
-        # Strong collision penalties
-        # Penalty for being too close to teammates
-        for j in range(self.num_team_a):
-            if i != j:  # Don't compare with self
-                dist_to_teammate = np.hypot(
-                    new_state['agent_x'][i] - new_state['agent_x'][j],
-                    new_state['agent_y'][i] - new_state['agent_y'][j]
-                )
-                # Much larger safe distance and stronger penalty
-                collision_threshold = 2 * self.engine.paddle_radius + 15
-                if dist_to_teammate < collision_threshold:
-                    # MUCH stronger penalty
-                    penalty_scale = (1.0 - dist_to_teammate / collision_threshold)
-                    collision_penalty = 0.5 * penalty_scale
-                    # Extra harsh penalty for actually touching
-                    if dist_to_teammate < 2 * self.engine.paddle_radius:
-                        collision_penalty += 1.0
-                    rewards[i] -= collision_penalty
+            # 3. PUCK VELOCITY TOWARD OPPONENT GOAL (reward for hitting puck right)
+            if dist_to_puck < (self.engine.paddle_radius + self.engine.puck_radius + 20):
+                # Agent is near puck
+                puck_vx = new_state['puck_vx']
+                # Reward if puck moving toward opponent goal (right)
+                if puck_vx > 0:
+                    rewards[i] += 0.5 * abs(puck_vx) / self.engine.puck_max_speed
+            
+            # 4. DEFENSIVE POSITIONING (stay on left side)
+            half_line = self.engine.width / 2.0
+            if agent_x < half_line:
+                # Good - on defensive side
+                rewards[i] += 0.1
+            else:
+                # Bad - crossed to opponent's side
+                overstep = (agent_x - half_line) / half_line
+                rewards[i] -= 0.2 * overstep
+            
+            # 5. MOVEMENT REWARD (encourage action)
+            action_magnitude = np.abs(actions[i]).sum()
+            if action_magnitude > 0:
+                rewards[i] += 0.05  # Small bonus for moving
         
-        # Penalty for being too close to opponents
-        #for j in range(self.num_team_a, self.num_team_a + self.num_team_b):
-        #    dist_to_opponent = np.hypot(
-        #        new_state['agent_x'][i] - new_state['agent_x'][j],
-        #        new_state['agent_y'][i] - new_state['agent_y'][j]
-        #    )
-            # Larger safe distance and even stronger penalty
-        #    collision_threshold = 2 * self.engine.paddle_radius + 20
-        #    if dist_to_opponent < collision_threshold:
-                # MUCH stronger penalty for opponents
-        #        penalty_scale = (1.0 - dist_to_opponent / collision_threshold)
-        #        collision_penalty = 0.8 * penalty_scale
-                # Extremely harsh penalty for touching opponents
-        #        if dist_to_opponent < 2 * self.engine.paddle_radius:
-        #            collision_penalty += 2.0
-        #        rewards[i] -= collision_penalty
+        # 6. REMOVE HARSH COLLISION PENALTIES
+        # (The old code had massive collision penalties that made agents freeze)
+        # Only penalize if agents are literally overlapping
+        paddle_diameter = 2 * self.engine.paddle_radius
+        for i in range(self.num_team_a):
+            agent_x_i = new_state['agent_x'][i]
+            agent_y_i = new_state['agent_y'][i]
             
-            # Penalty for being too close to opponents
-        #    for j in range(self.num_team_a, self.num_team_a + self.num_team_b):
-        #        dist_to_opponent = np.hypot(
-        #            new_state['agent_x'][i] - new_state['agent_x'][j],
-        #            new_state['agent_y'][i] - new_state['agent_y'][j]
-        #        )
-                # Penalty for touching/colliding with opponents
-        #        collision_threshold = 2 * self.engine.paddle_radius + 5
-        #        if dist_to_opponent < collision_threshold:
-                    # Even stronger penalty for opponent collisions
-        #            collision_penalty = 0.2 * (1.0 - dist_to_opponent / collision_threshold)
-        #            rewards[i] -= collision_penalty
+            # Check teammate collisions (only if very close)
+            for j in range(self.num_team_a):
+                if i != j:
+                    dist = np.hypot(
+                        agent_x_i - new_state['agent_x'][j],
+                        agent_y_i - new_state['agent_y'][j]
+                    )
+                    if dist < paddle_diameter * 0.8:  # Only if really overlapping
+                        rewards[i] -= 0.1
         
         return rewards
     
     def _check_done(self, state: Dict) -> np.ndarray:
         """Check if episode is done"""
-        max_score = 5
-        done = (state['team_a_score'] >= max_score or 
-                state['team_b_score'] >= max_score or
-                self.engine.tick >= 3600)  # 60 sec at 60Hz
+        max_score = getattr(self, 'max_score', 3)  # Use env attribute or default
+        max_steps = getattr(self, 'max_steps', 1200)
+        
+        score_done = (state['team_a_score'] >= max_score or 
+                    state['team_b_score'] >= max_score)
+        time_done = self.engine.tick >= max_steps
+        
+        done = score_done or time_done
+        
         return np.array([done] * self.num_team_a, dtype=np.float32)
 
 
@@ -383,10 +400,20 @@ class PPOTrainer:
         """Collect n_steps of experience"""
         self.reset_rollout_buffer()
         obs = self.env.reset()
+        
+        # Episode tracking
         episode_rewards = []
         episode_lengths = []
+        episode_goals_for = []
+        episode_goals_against = []
+        
         current_episode_reward = 0
         current_episode_length = 0
+        current_episode_goals_a = 0
+        current_episode_goals_b = 0
+        
+        # Track steps where done occurred (for debugging)
+        num_resets = 0
         
         for step in range(self.config.n_steps):
             # Convert to tensor
@@ -407,28 +434,62 @@ class PPOTrainer:
             self.logprob_buffer.append(logprob.cpu().numpy())
             self.done_buffer.append(done)
             
-            # Update metrics
+            # Update episode metrics
             current_episode_reward += reward.sum()
             current_episode_length += 1
             
+            # Track goals
+            if 'scores' in info:
+                new_score_a = info['scores']['team_a_score']
+                new_score_b = info['scores']['team_b_score']
+                
+                if new_score_a > current_episode_goals_a:
+                    current_episode_goals_a = new_score_a
+                if new_score_b > current_episode_goals_b:
+                    current_episode_goals_b = new_score_b
+            
             # Handle episode termination
-            if done.any():
+            # ALL agents must be done (not just any)
+            if done.all():
                 episode_rewards.append(current_episode_reward)
                 episode_lengths.append(current_episode_length)
+                episode_goals_for.append(current_episode_goals_a)
+                episode_goals_against.append(current_episode_goals_b)
+                
+                # Reset for next episode
                 current_episode_reward = 0
                 current_episode_length = 0
+                current_episode_goals_a = 0
+                current_episode_goals_b = 0
+                num_resets += 1
+                
                 obs = self.env.reset()
             else:
                 obs = next_obs
         
+        # Handle incomplete episode at end of rollout
+        if current_episode_length > 0:
+            # Record partial episode for diagnostics
+            episode_rewards.append(current_episode_reward)
+            episode_lengths.append(current_episode_length)
+            episode_goals_for.append(current_episode_goals_a)
+            episode_goals_against.append(current_episode_goals_b)
+        
         # Compute advantages and returns
         self._compute_gae()
         
-        return {
+        # Detailed diagnostics
+        diagnostics = {
             'episode_rewards': episode_rewards,
             'episode_lengths': episode_lengths,
-            'mean_value': np.mean([v.mean() for v in self.value_buffer])
+            'episode_goals_for': episode_goals_for,
+            'episode_goals_against': episode_goals_against,
+            'mean_value': np.mean([v.mean() for v in self.value_buffer]),
+            'num_episodes_completed': num_resets,
+            'num_steps_collected': self.config.n_steps,
         }
+        
+        return diagnostics
     
     def _compute_gae(self):
         """Compute Generalized Advantage Estimation"""
@@ -572,29 +633,53 @@ class PPOTrainer:
             if rollout % self.config.log_interval == 0:
                 timesteps = (rollout + 1) * self.config.n_steps
                 
-                if rollout_info['episode_rewards']:
-                    mean_reward = np.mean(rollout_info['episode_rewards'])
-                    mean_length = np.mean(rollout_info['episode_lengths'])
-                else:
-                    mean_reward = 0
-                    mean_length = 0
+                # Extract stats
+                num_completed = rollout_info['num_episodes_completed']
+                episode_rewards = rollout_info['episode_rewards']
+                episode_lengths = rollout_info['episode_lengths']
+                goals_for = rollout_info['episode_goals_for']
+                goals_against = rollout_info['episode_goals_against']
                 
+                # Compute meaningful stats
+                if episode_rewards:
+                    mean_reward = np.mean(episode_rewards)
+                    mean_length = np.mean(episode_lengths)
+                    mean_goals_a = np.mean(goals_for)
+                    mean_goals_b = np.mean(goals_against)
+                else:
+                    mean_reward = 0.0
+                    mean_length = 0.0
+                    mean_goals_a = 0.0
+                    mean_goals_b = 0.0
+                
+                # Log with diagnostics
                 self.logger.info(
                     f"Rollout {rollout}/{n_rollouts} | "
                     f"Timesteps: {timesteps} | "
-                    f"Mean Reward: {mean_reward:.2f} | "
-                    f"Mean Length: {mean_length:.1f} | "
-                    f"Policy Loss: {update_info['policy_loss']:.4f} | "
-                    f"Value Loss: {update_info['value_loss']:.4f} | "
+                    f"Episodes: {num_completed} | "
+                    f"Reward: {mean_reward:.2f} | "
+                    f"Length: {mean_length:.1f} | "
+                    f"Goals: {mean_goals_a:.2f}-{mean_goals_b:.2f} | "
+                    f"Value: {rollout_info['mean_value']:.2f} | "
+                    f"PG Loss: {update_info['policy_loss']:.4f} | "
+                    f"V Loss: {update_info['value_loss']:.4f} | "
                     f"Entropy: {update_info['entropy']:.4f}"
                 )
+                
+                # Warning if no episodes completing
+                if num_completed == 0:
+                    self.logger.warning(
+                        f"  ⚠️  No episodes completed in this rollout! "
+                        f"Collected {len(episode_rewards)} partial episodes. "
+                        f"Consider increasing max episode length or checking done conditions."
+                    )
             
             # Save checkpoint
             if rollout % self.config.save_interval == 0:
                 self.save_checkpoint(rollout)
         
         self.logger.info("Training completed!")
-    
+
     def save_checkpoint(self, rollout: int):
         """Save model checkpoint"""
         checkpoint_path = os.path.join(
@@ -612,12 +697,22 @@ class PPOTrainer:
 
 def main():
     """Main training script"""
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--config', default='config/ppo_config.yaml')
+    parser.add_argument('--checkpoint', default=None, help='Resume from checkpoint')
+    args = parser.parse_args()
+    
     # Load configuration
-    config_path = "config/ppo_config.yaml"
+    config_path = args.config
     if os.path.exists(config_path):
         with open(config_path, 'r') as f:
             config_dict = yaml.safe_load(f)
-        config = PPOConfig(**config_dict)
+        
+        # Filter out unknown parameters for PPOConfig
+        valid_fields = {f.name for f in PPOConfig.__dataclass_fields__.values()}
+        filtered_config = {k: v for k, v in config_dict.items() if k in valid_fields}
+        config = PPOConfig(**filtered_config)
     else:
         config = PPOConfig()
     
@@ -633,8 +728,19 @@ def main():
         'puck_max_speed': 6,
     }
     
-    # Create trainer and run
+    # Create trainer
     trainer = PPOTrainer(config, scenario_params)
+    
+    # Load checkpoint if provided
+    if args.checkpoint:
+        print(f"Loading checkpoint: {args.checkpoint}")
+        checkpoint = torch.load(args.checkpoint, map_location=trainer.device, weights_only=False)
+        trainer.agent.load_state_dict(checkpoint['model_state_dict'])
+        if 'optimizer_state_dict' in checkpoint:
+            trainer.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+        print("Checkpoint loaded successfully!")
+    
+    # Train
     trainer.train()
 
 

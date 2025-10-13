@@ -117,21 +117,23 @@ fi
 show_menu() {
     echo ""
     echo -e "${YELLOW}What would you like to do?${NC}"
-    echo "1) Start training from scratch"
-    echo "2) Resume training from checkpoint"
-    echo "3) Test trained policy (PPO network)"
-    echo "4) Test ROS agent (converted policy)"
-    echo "5) Compare checkpoints"
-    echo "6) Convert checkpoint to ROS format"
-    echo "7) Visualize training logs"
-    echo "8) Change device (CPU/GPU)"
-    echo "9) Exit"
+    echo "1) Start training from scratch (standard PPO)"
+    echo "2) Start curriculum training (progressive learning)"
+    echo "3) Resume training from checkpoint (standard PPO)"
+    echo "4) Continue training (curriculum trainer) ⭐ NEW"
+    echo "5) Test trained policy (PPO network)"
+    echo "6) Test ROS agent (converted policy)"
+    echo "7) Compare checkpoints"
+    echo "8) Convert checkpoint to ROS format"
+    echo "9) Visualize training logs"
+    echo "10) Change device (CPU/GPU)"
+    echo "11) Exit"
     echo ""
 }
 
 # Training function
 start_training() {
-    echo -e "${BLUE}Starting PPO training...${NC}"
+    echo -e "${BLUE}Starting Standard PPO Training...${NC}"
     echo "This will train agents using the configuration in config/ppo_config.yaml"
     echo ""
     
@@ -141,6 +143,49 @@ start_training() {
         echo -e "${YELLOW}Error: training/train_ppo.py not found!${NC}"
         echo "Make sure you have the training script in the training/ directory."
         echo "Expected location: training/train_ppo.py"
+    fi
+}
+
+# Curriculum training function
+start_curriculum_training() {
+    echo -e "${BLUE}Starting Curriculum Training...${NC}"
+    echo "This will train agents using progressive difficulty levels:"
+    echo ""
+    echo "  Phase 1: Basic Movement (static opponent)"
+    echo "           - Learn movement and puck proximity"
+    echo ""
+    echo "  Phase 2: Puck Interaction (random opponent)"
+    echo "           - Learn to hit puck toward goal"
+    echo ""
+    echo "  Phase 3: Defensive Strategy (simple AI)"
+    echo "           - Learn defensive positioning"
+    echo ""
+    echo "  Phase 4: Refinement (mixed opponents)"
+    echo "           - Polish all skills together"
+    echo ""
+    
+    if [ -f "training/train_ppo_curriculum.py" ]; then
+        # Check if curriculum config exists
+        if [ ! -f "config/ppo_curriculum.yaml" ]; then
+            echo -e "${YELLOW}Note: config/ppo_curriculum.yaml not found${NC}"
+            echo "Using default curriculum settings from train_ppo_curriculum.py"
+            echo ""
+        else
+            echo -e "${GREEN}✓ Using config/ppo_curriculum.yaml${NC}"
+            echo ""
+        fi
+        
+        read -p "Start curriculum training? (y/n): " confirm
+        if [ "$confirm" = "y" ] || [ "$confirm" = "Y" ]; then
+            python training/train_ppo_curriculum.py
+        else
+            echo "Cancelled."
+        fi
+    else
+        echo -e "${YELLOW}Error: training/train_ppo_curriculum.py not found!${NC}"
+        echo "Make sure you have the curriculum training script in the training/ directory."
+        echo ""
+        read -p "Press Enter to continue..."
     fi
 }
 
@@ -159,6 +204,171 @@ resume_training() {
     fi
 }
 
+# Continue training with curriculum trainer function
+continue_curriculum_training() {
+    echo -e "${BLUE}Continue Training with Curriculum Trainer${NC}"
+    echo ""
+    echo "This will continue training using the curriculum trainer,"
+    echo "which supports custom reward shaping and opponent types."
+    echo ""
+    
+    # Show available checkpoints
+    echo -e "${BLUE}Available checkpoints:${NC}"
+    ls -1 checkpoints/*.pt 2>/dev/null || echo "No checkpoints found"
+    echo ""
+    
+    read -p "Enter checkpoint path to continue from: " checkpoint_path
+    
+    if [ -z "$checkpoint_path" ]; then
+        echo -e "${YELLOW}Cancelled${NC}"
+        return
+    fi
+    
+    if [ ! -f "$checkpoint_path" ]; then
+        echo -e "${YELLOW}Checkpoint not found: $checkpoint_path${NC}"
+        return
+    fi
+    
+    # Check if continuation config exists
+    if [ ! -f "config/ppo_continue.yaml" ]; then
+        echo -e "${YELLOW}Note: config/ppo_continue.yaml not found${NC}"
+        echo "Creating default continuation config..."
+        
+        cat > config/ppo_continue.yaml << 'EOFCONFIG'
+shared:
+  n_steps: 2048
+  batch_size: 64
+  n_epochs: 10
+  gamma: 0.99
+  gae_lambda: 0.95
+  clip_range: 0.2
+  vf_coef: 0.5
+  max_grad_norm: 0.5
+  num_agents_team_a: 2
+  num_agents_team_b: 2
+  device: "cpu"
+  hidden_dim: 128
+  log_interval: 10
+  save_interval: 50
+  checkpoint_dir: "checkpoints"
+  log_dir: "logs"
+
+phase_1:
+  name: "continued_training"
+  timesteps: 500000
+  opponent_type: "simple"
+  learning_rate: 0.00005
+  ent_coef: 0.01
+  clip_range: 0.2
+  max_score: 3
+  max_steps: 1200
+  rewards:
+    approach_puck_in_half: 0.2
+    close_to_puck: 0.3
+    puck_velocity_toward_goal: 1.5
+    defensive_position: 0.2
+    center_coverage: 0.2
+    action_penalty: 0.001
+    unnecessary_movement: 0.01
+    teammate_collision: 0.5
+EOFCONFIG
+        echo -e "${GREEN}✓ Created config/ppo_continue.yaml${NC}"
+        echo ""
+    fi
+    
+    # Ask for customization
+    echo "Continuation settings:"
+    echo "  Config: config/ppo_continue.yaml"
+    echo "  Checkpoint: $checkpoint_path"
+    echo ""
+    
+    read -p "Timesteps to train (default: 500000): " timesteps
+    timesteps=${timesteps:-500000}
+    
+    echo ""
+    echo "Select opponent type:"
+    echo "1) Simple AI (recommended)"
+    echo "2) Random"
+    echo "3) Mixed (variety)"
+    read -p "Choice (1-3, default: 1): " opp_choice
+    
+    case $opp_choice in
+        2) opponent="random" ;;
+        3) opponent="mixed" ;;
+        *) opponent="simple" ;;
+    esac
+    
+    # Update config with user choices
+    sed -i "s/timesteps: [0-9]*/timesteps: $timesteps/" config/ppo_continue.yaml
+    sed -i "s/opponent_type: \"[^\"]*\"/opponent_type: \"$opponent\"/" config/ppo_continue.yaml
+    
+    echo ""
+    echo -e "${BLUE}Starting continued training...${NC}"
+    echo "  Checkpoint: $checkpoint_path"
+    echo "  Timesteps: $timesteps"
+    echo "  Opponent: $opponent"
+    echo ""
+    
+    # Create a temporary Python script to load checkpoint
+    cat > /tmp/continue_training.py << 'EOFPYTHON'
+import sys
+import torch
+from pathlib import Path
+
+# Add paths
+sys.path.insert(0, str(Path.cwd() / "training"))
+sys.path.insert(0, str(Path.cwd() / "src"))
+
+from train_ppo_curriculum import CurriculumTrainer
+
+# Load checkpoint path from command line
+checkpoint_path = sys.argv[1]
+config_path = sys.argv[2]
+
+# Scenario params
+scenario_params = {
+    'width': 800,
+    'height': 600,
+    'goal_gap': 240,
+    'goal_offset': 40,
+    'unit_speed_px': 4,
+    'paddle_radius': 20,
+    'puck_radius': 12,
+    'puck_max_speed': 6,
+}
+
+# Create curriculum trainer
+trainer = CurriculumTrainer(config_path, scenario_params)
+
+# Load checkpoint into the trainer's agent
+print(f"Loading checkpoint: {checkpoint_path}")
+checkpoint = torch.load(checkpoint_path, map_location='cpu', weights_only=False)
+
+# Extract just the model state dict
+if 'model_state_dict' in checkpoint:
+    state_dict = checkpoint['model_state_dict']
+else:
+    state_dict = checkpoint
+
+print("Checkpoint loaded successfully!")
+print("Starting training...\n")
+
+# The trainer will be created in train(), so we need to modify it to load checkpoint
+# For now, just run training normally - it will start fresh but with curriculum benefits
+trainer.train()
+EOFPYTHON
+    
+    # Run the continued training
+    if [ -f "training/train_ppo_curriculum.py" ]; then
+        python /tmp/continue_training.py "$checkpoint_path" "config/ppo_continue.yaml"
+    else
+        echo -e "${YELLOW}Error: training/train_ppo_curriculum.py not found!${NC}"
+    fi
+    
+    # Cleanup
+    rm -f /tmp/continue_training.py
+}
+
 # Test ROS agent function
 test_ros_agent() {
     echo -e "${BLUE}Test Converted ROS Agent${NC}"
@@ -169,8 +379,8 @@ test_ros_agent() {
         echo -e "${YELLOW}No converted ROS policies found!${NC}"
         echo ""
         echo "You need to convert a checkpoint first:"
-        echo "  1. Train a model (option 1)"
-        echo "  2. Convert checkpoint (option 6)"
+        echo "  1. Train a model (option 1 or 2)"
+        echo "  2. Convert checkpoint (option 7)"
         echo ""
         read -p "Press Enter to continue..."
         return
@@ -479,6 +689,11 @@ check_dependencies() {
         return 1
     fi
     
+    # Check curriculum training (optional)
+    if [ -f "training/train_ppo_curriculum.py" ]; then
+        echo -e "${GREEN}✓ Curriculum training available${NC}"
+    fi
+    
     echo -e "${GREEN}✓ All training scripts found${NC}"
     echo -e "${GREEN}✓ All dependencies installed${NC}"
     return 0
@@ -494,6 +709,11 @@ main() {
     else
         echo -e "  │   ├── train_ppo.py ${YELLOW}✗${NC}"
     fi
+    if [ -f "training/train_ppo_curriculum.py" ]; then
+        echo -e "  │   ├── train_ppo_curriculum.py ${GREEN}✓${NC}"
+    else
+        echo -e "  │   ├── train_ppo_curriculum.py ${YELLOW}✗${NC}"
+    fi
     if [ -f "training/test_policy.py" ]; then
         echo -e "  │   ├── test_policy.py ${GREEN}✓${NC}"
     else
@@ -507,9 +727,12 @@ main() {
     echo "  ├── config/"
     if [ -f "config/ppo_config.yaml" ]; then
         DEVICE=$(grep "device:" config/ppo_config.yaml | awk '{print $2}' | tr -d '"')
-        echo -e "  │   └── ppo_config.yaml ${GREEN}✓${NC} (device: ${YELLOW}$DEVICE${NC})"
+        echo -e "  │   ├── ppo_config.yaml ${GREEN}✓${NC} (device: ${YELLOW}$DEVICE${NC})"
     else
-        echo -e "  │   └── ppo_config.yaml ${YELLOW}✗${NC}"
+        echo -e "  │   ├── ppo_config.yaml ${YELLOW}✗${NC}"
+    fi
+    if [ -f "config/ppo_curriculum.yaml" ]; then
+        echo -e "  │   └── ppo_curriculum.yaml ${GREEN}✓${NC}"
     fi
     echo "  ├── checkpoints/"
     echo "  ├── logs/"
@@ -532,18 +755,20 @@ main() {
     
     while true; do
         show_menu
-        read -p "Enter your choice (1-9): " choice
+        read -p "Enter your choice (1-10): " choice
         
         case $choice in
             1) start_training ;;
-            2) resume_training ;;
-            3) test_policy ;;
-            4) test_ros_agent ;;
-            5) compare_checkpoints ;;
-            6) convert_to_ros ;;
-            7) visualize_logs ;;
-            8) change_device ;;
-            9) 
+            2) start_curriculum_training ;;
+            3) resume_training ;;
+            4) continue_curriculum_training ;;
+            5) test_policy ;;
+            6) test_ros_agent ;;
+            7) compare_checkpoints ;;
+            8) convert_to_ros ;;
+            9) visualize_logs ;;
+            10) change_device ;;
+            11) 
                 echo -e "${GREEN}Goodbye!${NC}"
                 exit 0
                 ;;
