@@ -43,6 +43,12 @@ class SpotlightScheduler(threading.Thread):
     def get_emergency_func(self):
         return self.trigger_emergency
 
+    def set_long_term_mode(self):
+        self._mode = SpotlightMode.LT
+
+    def get_long_term_mode_func(self):
+        return self.set_long_term_mode
+
     def shutdown(self):
         with self._cv:
             self._shutdown = True
