@@ -78,10 +78,6 @@ class NeuralAgentPolicy(AgentPolicy):
         # Forward
         dx_f, dy_f = self.net.get_action_struct(self_xy, puck_xyvy, team_feats, opp_feats)
         
-        # HALF-LINE ENFORCEMENT - Force move left if past middle
-        if self_xy[0] >= 0.5:
-            dx_f = -1
-        
         # Always discrete output
         return _to_discrete(dx_f, dy_f, self.deadzone)
 

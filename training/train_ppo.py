@@ -76,7 +76,7 @@ class AirHockeyEnv:
         self.num_team_b = config.num_agents_team_b
         self.num_agents = self.num_team_a + self.num_team_b
         self.prev_actions = np.zeros((self.num_team_a, 2), dtype=np.float32)
-        self.action_smooth_factor = 0.3  # Blend 30% of previous action
+        self.action_smooth_factor = 0.0  # Blend 30% of previous action
         
         # Observation/action space info
         self.obs_dim = self._get_obs_dim()
@@ -203,74 +203,79 @@ class AirHockeyEnv:
         return obs
     
     def _compute_rewards(self, prev_state: Dict, new_state: Dict, actions: np.ndarray) -> np.ndarray:
-        """Compute shaped rewards for Team A agents"""
+        """
+        Team-based reward structure:
+        - Goal rewards: SHARED by all teammates (encourages cooperation)
+        - Contact rewards: INDIVIDUAL to hitter (prevents free-riding)
+        """
         rewards = np.zeros(self.num_team_a, dtype=np.float32)
         
-        # 1. GOAL REWARDS (sparse but important)
+        # === 1. GOAL REWARDS - SHARED BY ENTIRE TEAM ===
         goal_reward = 0.0
         if new_state['team_a_score'] > prev_state['team_a_score']:
-            goal_reward = 100.0  # Increased significantly
+            goal_reward = 1000.0  # Team scored!
         if new_state['team_b_score'] > prev_state['team_b_score']:
-            goal_reward = -100.0
+            goal_reward = -1000.0  # Team was scored on!
         
+        # ALL team members get goal reward (encourages cooperation)
         rewards += goal_reward
         
-        # 2. PUCK PROXIMITY REWARD (encourage approaching puck)
+        # === 2. DETECT PUCK VELOCITY CHANGE ===
         puck_x = new_state['puck_x']
         puck_y = new_state['puck_y']
+        prev_puck_vx = prev_state.get('puck_vx', 0.0)
+        prev_puck_vy = prev_state.get('puck_vy', 0.0)
+        new_puck_vx = new_state['puck_vx']
+        new_puck_vy = new_state['puck_vy']
         
-        for i in range(self.num_team_a):
-            agent_x = new_state['agent_x'][i]
-            agent_y = new_state['agent_y'][i]
-            
-            # Distance to puck
-            dist_to_puck = np.hypot(agent_x - puck_x, agent_y - puck_y)
-            
-            # Reward for being close to puck (normalized)
-            max_dist = np.hypot(self.engine.width, self.engine.height)
-            proximity_reward = 0.5 * (1.0 - dist_to_puck / max_dist)
-            rewards[i] += proximity_reward
-            
-            # 3. PUCK VELOCITY TOWARD OPPONENT GOAL (reward for hitting puck right)
-            if dist_to_puck < (self.engine.paddle_radius + self.engine.puck_radius + 20):
-                # Agent is near puck
-                puck_vx = new_state['puck_vx']
-                # Reward if puck moving toward opponent goal (right)
-                if puck_vx > 0:
-                    rewards[i] += 0.5 * abs(puck_vx) / self.engine.puck_max_speed
-            
-            # 4. DEFENSIVE POSITIONING (stay on left side)
-            half_line = self.engine.width / 2.0
-            if agent_x < half_line:
-                # Good - on defensive side
-                rewards[i] += 0.1
-            else:
-                # Bad - crossed to opponent's side
-                overstep = (agent_x - half_line) / half_line
-                rewards[i] -= 0.2 * overstep
-            
-            # 5. MOVEMENT REWARD (encourage action)
-            action_magnitude = np.abs(actions[i]).sum()
-            if action_magnitude > 0:
-                rewards[i] += 0.05  # Small bonus for moving
+        delta_puck_vx = new_puck_vx - prev_puck_vx
+        delta_puck_vy = new_puck_vy - prev_puck_vy
+        puck_vel_change_magnitude = np.hypot(delta_puck_vx, delta_puck_vy)
         
-        # 6. REMOVE HARSH COLLISION PENALTIES
-        # (The old code had massive collision penalties that made agents freeze)
-        # Only penalize if agents are literally overlapping
-        paddle_diameter = 2 * self.engine.paddle_radius
-        for i in range(self.num_team_a):
-            agent_x_i = new_state['agent_x'][i]
-            agent_y_i = new_state['agent_y'][i]
+        if puck_vel_change_magnitude > 0.5:  # Significant change
+            hit_distance = self.engine.paddle_radius + self.engine.puck_radius + 15
             
-            # Check teammate collisions (only if very close)
-            for j in range(self.num_team_a):
-                if i != j:
-                    dist = np.hypot(
-                        agent_x_i - new_state['agent_x'][j],
-                        agent_y_i - new_state['agent_y'][j]
-                    )
-                    if dist < paddle_diameter * 0.8:  # Only if really overlapping
-                        rewards[i] -= 0.1
+            best_agent = None
+            best_alignment = -1.0
+            
+            for i in range(self.num_team_a):
+                prev_agent_x = prev_state['agent_x'][i]
+                prev_agent_y = prev_state['agent_y'][i]
+                agent_x = new_state['agent_x'][i]
+                agent_y = new_state['agent_y'][i]
+                
+                dist_to_puck = np.hypot(agent_x - puck_x, agent_y - puck_y)
+                
+                if dist_to_puck < hit_distance:
+                    # Agent's movement this step
+                    agent_dx = agent_x - prev_agent_x
+                    agent_dy = agent_y - prev_agent_y
+                    agent_movement = np.hypot(agent_dx, agent_dy)
+                    
+                    if agent_movement > 0.1:  # Agent actually moved
+                        # Normalize agent movement direction
+                        agent_dx_norm = agent_dx / agent_movement
+                        agent_dy_norm = agent_dy / agent_movement
+                        
+                        # Normalize puck velocity change direction
+                        delta_vx_norm = delta_puck_vx / puck_vel_change_magnitude
+                        delta_vy_norm = delta_puck_vy / puck_vel_change_magnitude
+                        
+                        # Check alignment: does puck move in same direction as agent?
+                        alignment = agent_dx_norm * delta_vx_norm + agent_dy_norm * delta_vy_norm
+                        
+                        if alignment > best_alignment:
+                            best_alignment = alignment
+                            best_agent = i
+            
+            # === 3. CONTACT REWARD - ONLY TO HITTING AGENT ===
+            if best_agent is not None and best_alignment > 0.3:
+                rewards[best_agent] += 20.0  # Only hitter gets contact reward
+                
+                # === 4. SHOOTING REWARD - ONLY TO HITTING AGENT ===
+                if new_puck_vx > 0:  # Moving toward opponent goal
+                    shot_power = min(new_puck_vx / self.engine.puck_max_speed, 1.0)
+                    rewards[best_agent] += 80.0 * shot_power
         
         return rewards
     

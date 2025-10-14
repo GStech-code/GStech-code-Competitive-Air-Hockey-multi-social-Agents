@@ -171,6 +171,39 @@ class BaseEngine:
         self.team_b_score = 0
         self.tick = 0
 
+    def _enforce_bounds_and_halfline(self) -> None:
+        """
+        Keep agents inside the rink; apply HARD half-line policy.
+        Agents CANNOT cross the halfway line (air hockey rule).
+        """
+        r = self.paddle_radius
+        w = self.width
+        h = self.height
+        half_line = self.half_line_pos  # This is width / 2
+
+        for i in range(len(self.agent_x)):
+            # Walls (full rink)
+            if self.agent_y[i] < r:
+                self.agent_y[i] = r
+            elif self.agent_y[i] > h - r:
+                self.agent_y[i] = h - r
+
+            # Half-line enforcement (HARD CONSTRAINT)
+            # Team A (agents 0 to num_team_a-1) must stay on LEFT side (x < half_line)
+            # Team B (remaining agents) must stay on RIGHT side (x > half_line)
+            if self.agent_team[i] == 0:  # Team A
+                if self.agent_x[i] > half_line - r:
+                    self.agent_x[i] = half_line - r
+            else:  # Team B
+                if self.agent_x[i] < half_line + r:
+                    self.agent_x[i] = half_line + r
+            
+            # Left/right walls
+            if self.agent_x[i] < r:
+                self.agent_x[i] = r
+            elif self.agent_x[i] > w - r:
+                self.agent_x[i] = w - r
+
     # --- Control & stepping ---
     def apply_commands(self, commands: List[Command]) -> None:
         """
