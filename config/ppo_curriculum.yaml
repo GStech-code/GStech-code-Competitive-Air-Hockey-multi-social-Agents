@@ -1,12 +1,10 @@
-# config/ppo_curriculum.yaml - AGGRESSIVE CURRICULUM
-# No defensive training - focus on hitting and shooting!
+# ============================================
+# CURRICULUM CONFIG FOR PPO TRAINING
+# ============================================
 
-# ============================================
-# SHARED CONFIGURATION
-# ============================================
 shared:
   n_steps: 2048
-  batch_size: 128  # up from 64
+  batch_size: 64
   n_epochs: 10
   gamma: 0.99
   gae_lambda: 0.95
@@ -14,94 +12,57 @@ shared:
   clip_range_vf: 0.2
   vf_coef: 0.5
   max_grad_norm: 0.5
-  num_agents_team_a: 2
-  num_agents_team_b: 2
-  device: "cpu"
-  hidden_dim: 128
-  log_interval: 5
-  save_interval: 25
-  checkpoint_dir: "checkpoints"
-  log_dir: "logs"
 
-# ============================================
-# PHASE 1: LEARN HITTING (vs Static)
-# ============================================
+# Phase 1: Learn to approach puck
 phase_1:
   name: "learn_hitting"
-  timesteps: 150000
+  timesteps: 100000  # SHORTER - just learn basics
   opponent_type: "static"
   max_score: 100
   max_steps: 600
-  learning_rate: 0.001
-  ent_coef: 0.20
-  clip_range: 0.3
-  rewards:
-    approach_puck_in_half: 0.0
-    close_to_puck: 0.0
-    puck_velocity_toward_goal: 0.0
-    defensive_position: 0.0  # ← No defensive rewards!
-    center_coverage: 0.0
-    action_penalty: 0.0
-    unnecessary_movement: 0.0
-    teammate_collision: 0.0
+  learning_rate: 0.0003
+  ent_coef: 0.01  # START LOWER (was 0.02)
+  clip_range: 0.2
 
-# ============================================
-# PHASE 2: LEARN SHOOTING (vs Static)
-# ============================================
+# Phase 2: Master shooting
 phase_2:
   name: "learn_shooting"
-  timesteps: 200000  # Give it more time (increased from 150k)
+  timesteps: 400000  # DOUBLED from 200k - this is where learning happens!
   opponent_type: "static"
   max_score: 3
   max_steps: 800
-  learning_rate: 0.0002  # Much more conservative
-  ent_coef: 0.15
+  learning_rate: 0.0002
+  ent_coef: 0.005  # LOWER (was 0.01)
   clip_range: 0.2
-  rewards:
-    approach_puck_in_half: 0.0
-    close_to_puck: 0.0
-    puck_velocity_toward_goal: 0.0
-    defensive_position: 0.0  # ← No defensive rewards!
-    center_coverage: 0.0
-    action_penalty: 0.0
-    unnecessary_movement: 0.0
-    teammate_collision: 0.1
 
-# ============================================
-# PHASE 3: FULL GAME (vs Simple AI)
-# ============================================
-# Jump straight to competitive play!
+# Phase 3: Easy opponent transition
 phase_3:
-  name: "full_game"
+  name: "vs_random_opponent"
+  timesteps: 150000
+  opponent_type: "random"  # EASIER than "simple"!
+  max_score: 3
+  max_steps: 1200
+  learning_rate: 0.0002
+  ent_coef: 0.002  # VERY LOW
+  clip_range: 0.2
+
+
+# PHASE 4: Simple AI with Defense
+phase_4:
+  name: "vs_simple_ai_defense"
   timesteps: 200000
   opponent_type: "simple"
   max_score: 5
-  max_steps: 1800
-  learning_rate: 0.0005  # Higher LR than before (more aggressive learning)
-  ent_coef: 0.10  # Higher entropy (more exploration)
-  clip_range: 0.2
+  max_steps: 1500
+  learning_rate: 0.0001
+  ent_coef: 0.001
+  clip_range: 0.15
   rewards:
     approach_puck_in_half: 0.0
     close_to_puck: 0.0
-    puck_velocity_toward_goal: 0.0
-    defensive_position: 0.0  # ← ZERO defensive rewards!
-    center_coverage: 0.0      # ← ZERO coverage rewards!
-    action_penalty: 0.0
-    unnecessary_movement: 0.0
-    teammate_collision: 0.3
-
-# ============================================
-# AGGRESSIVE CURRICULUM SUMMARY
-# ============================================
-# Total: 500,000 timesteps (~1 hour)
-# 
-# Phase 1: Learn hitting (vs static)
-# Phase 2: Learn shooting (vs static)  
-# Phase 3: Full game (vs simple AI)
-#
-# NO defensive training - pure offense!
-# Agents rewarded ONLY for:
-# - Approaching puck (+5/step)
-# - Hitting puck (+100)
-# - Shooting toward goal (+200)
-# - Scoring goals (+1000)
+    puck_velocity_toward_goal: 2.0      # Keep shooting priority HIGH
+    defensive_position: 0.15            # SMALL defensive incentive ✓
+    center_coverage: 0.10               # Encourage covering goal center
+    action_penalty: 0.0001              # Tiny energy efficiency
+    unnecessary_movement: 0.003         # Discourage wandering
+    teammate_collision: 0.3             # Avoid bumping teammates
