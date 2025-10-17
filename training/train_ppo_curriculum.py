@@ -97,6 +97,10 @@ class CurriculumPhase:
         self.learning_rate = config.get('learning_rate', base_config.learning_rate)
         self.ent_coef = config.get('ent_coef', base_config.ent_coef)
         self.clip_range = config.get('clip_range', base_config.clip_range)
+        
+        # Read phase-specific team sizes
+        self.num_agents_team_b = config.get('num_agents_team_b', base_config.num_agents_team_b)
+        
         self.rewards = config.get('rewards', {})
 
 
@@ -254,6 +258,19 @@ class CurriculumPPOTrainer(PPOTrainer):
         self.env.max_score = phase.max_score
         self.env.max_steps = phase.max_steps
         
+        # NEW: Update team sizes if changed
+        if hasattr(phase, 'num_agents_team_b'):
+            old_team_b = self.config.num_agents_team_b
+            new_team_b = phase.num_agents_team_b
+            
+            if old_team_b != new_team_b:
+                self.logger.info(f"  Updating Team B size: {old_team_b} → {new_team_b}")
+                self.config.num_agents_team_b = new_team_b
+                self.env.num_team_b = new_team_b
+                self.env.num_agents = self.env.num_team_a + self.env.num_team_b
+                # Reinitialize observation dimension
+                self.env.obs_dim = self.env._get_obs_dim()
+                
         # Update optimizer learning rate
         for param_group in self.optimizer.param_groups:
             param_group['lr'] = phase.learning_rate
@@ -310,7 +327,7 @@ class CurriculumPPOTrainer(PPOTrainer):
         n_updates = 0
         
         # === FIX 5: Early stopping on KL divergence ===
-        target_kl = 0.02
+        target_kl = 0.03  # Less aggressive early stopping (increased from 0.02)
         
         for epoch in range(self.config.n_epochs):
             indices = np.arange(len(obs))
@@ -460,7 +477,9 @@ class CurriculumPPOTrainer(PPOTrainer):
                     if update_info['entropy'] < 0.1:
                         self.logger.warning("⚠️  Very low entropy - policy collapsed!")
                     
-                    if mean_goals_for == 0 and mean_goals_against == 0 and rollout > 20:
+                    # Only warn about no goals if we're past Phase 1
+                    if (mean_goals_for == 0 and mean_goals_against == 0 and 
+                        rollout > 30 and self.current_phase.name != "learn_hitting"):
                         self.logger.warning("⚠️  No goals - agents may not be hitting puck!")
             
             # Save checkpoint during phase
@@ -494,9 +513,12 @@ class CurriculumPPOTrainer(PPOTrainer):
             # Generate opponent actions
             opponent_actions = self._generate_opponent_actions(opponent_type, world_state_before)
             
-            # Combine actions
+            # Combine actions (handle case with no opponents)
             team_a_actions = action.cpu().numpy()
-            all_actions = np.vstack([team_a_actions, opponent_actions])
+            if opponent_actions.shape[0] > 0:
+                all_actions = np.vstack([team_a_actions, opponent_actions])
+            else:
+                all_actions = team_a_actions
             
             # Step environment
             next_obs, base_reward, done, info = self.env.step(all_actions)
@@ -560,6 +582,10 @@ class CurriculumPPOTrainer(PPOTrainer):
     def _generate_opponent_actions(self, opponent_type: str, world_state: dict) -> np.ndarray:
         """Generate opponent actions"""
         num_opponents = self.config.num_agents_team_b
+        
+        # Handle case with no opponents
+        if num_opponents == 0:
+            return np.zeros((0, 2), dtype=np.float32)
         
         if opponent_type == "static":
             return np.zeros((num_opponents, 2), dtype=np.float32)

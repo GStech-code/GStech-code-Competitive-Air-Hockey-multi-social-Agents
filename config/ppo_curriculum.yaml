@@ -1,3 +1,6 @@
+# config/ppo_curriculum.yaml - AGGRESSIVE CURRICULUM
+# No defensive training - focus on hitting and shooting!
+
 # ============================================
 # SHARED CONFIGURATION
 # ============================================
@@ -8,11 +11,11 @@ shared:
   gamma: 0.99
   gae_lambda: 0.95
   clip_range: 0.2
-  clip_range_vf: 0.2  # CRITICAL FIX: Prevents value explosion
+  clip_range_vf: 0.2
   vf_coef: 0.5
   max_grad_norm: 0.5
   num_agents_team_a: 2
-  num_agents_team_b: 0  # No opponents in early phases
+  num_agents_team_b: 2
   device: "cpu"
   hidden_dim: 128
   log_interval: 5
@@ -21,162 +24,84 @@ shared:
   log_dir: "logs"
 
 # ============================================
-# PHASE 1: LEARN BASIC PUCK INTERACTION
+# PHASE 1: LEARN HITTING (vs Static)
 # ============================================
-# Goal: Agents learn to approach and contact puck
-# Success: Consistent puck contacts (>5 per episode)
-# Rewards: Dense approach (+5/step) + proximity (+2/step)
 phase_1:
   name: "learn_hitting"
-  timesteps: 150000  # Increased from 100k
+  timesteps: 150000
   opponent_type: "static"
-  max_score: 100  # Don't end on goals
-  max_steps: 600  # Short episodes for fast iteration
+  max_score: 100
+  max_steps: 600
   learning_rate: 0.001
-  ent_coef: 0.20  # High exploration
-  clip_range: 0.3  # Allow larger policy updates
-  
-  # Phase 1 relies on dense rewards from _compute_rewards()
-  # No additional curriculum rewards needed
+  ent_coef: 0.20
+  clip_range: 0.3
   rewards:
     approach_puck_in_half: 0.0
     close_to_puck: 0.0
     puck_velocity_toward_goal: 0.0
-    defensive_position: 0.0
+    defensive_position: 0.0  # ← No defensive rewards!
     center_coverage: 0.0
     action_penalty: 0.0
     unnecessary_movement: 0.0
     teammate_collision: 0.0
 
 # ============================================
-# PHASE 2: LEARN SHOOTING TOWARD GOAL
+# PHASE 2: LEARN SHOOTING (vs Static)
 # ============================================
-# Goal: Agents learn to shoot puck toward opponent goal
-# Success: Regular goals (>0.5 per episode)
-# Rewards: Contact (20) + shooting (80) + goal (1000)
 phase_2:
   name: "learn_shooting"
-  timesteps: 150000
+  timesteps: 200000  # Give it more time (increased from 150k)
   opponent_type: "static"
-  max_score: 3  # End after scoring (fast feedback)
-  max_steps: 800  # Slightly longer
-  learning_rate: 0.0008
+  max_score: 3
+  max_steps: 800
+  learning_rate: 0.0002  # Much more conservative
   ent_coef: 0.15
   clip_range: 0.2
-  
   rewards:
     approach_puck_in_half: 0.0
     close_to_puck: 0.0
     puck_velocity_toward_goal: 0.0
-    defensive_position: 0.0
+    defensive_position: 0.0  # ← No defensive rewards!
     center_coverage: 0.0
     action_penalty: 0.0
     unnecessary_movement: 0.0
-    teammate_collision: 0.1  # Small penalty to avoid bumping
+    teammate_collision: 0.1
 
 # ============================================
-# PHASE 3: LEARN DEFENSE (ADD OPPONENT)
+# PHASE 3: FULL GAME (vs Simple AI)
 # ============================================
-# Goal: Learn defensive positioning against simple AI
-# Success: Win rate >50% vs simple AI
-# Rewards: Start adding defensive positioning
+# Jump straight to competitive play!
 phase_3:
-  name: "learn_defense"
-  timesteps: 150000
-  opponent_type: "simple"  # Add simple AI opponent
-  max_score: 3
-  max_steps: 1200
-  learning_rate: 0.0005
-  ent_coef: 0.10
-  clip_range: 0.2
-  
-  rewards:
-    approach_puck_in_half: 0.0
-    close_to_puck: 0.0
-    puck_velocity_toward_goal: 0.0
-    defensive_position: 0.1  # Start caring about defense
-    center_coverage: 0.1
-    action_penalty: 0.0
-    unnecessary_movement: 0.0
-    teammate_collision: 0.2
-
-# ============================================
-# PHASE 3.5: INTERMEDIATE TACTICS (NEW!)
-# ============================================
-# Goal: Bridge the gap to full game
-# Success: Stable performance, refined tactics
-# This phase prevents catastrophic collapse!
-phase_3_5:
-  name: "learn_tactics"
-  timesteps: 100000
-  opponent_type: "simple"
-  max_score: 5
-  max_steps: 1500  # Longer episodes
-  learning_rate: 0.0003  # Lower LR for stability
-  ent_coef: 0.08
-  clip_range: 0.2
-  
-  rewards:
-    approach_puck_in_half: 0.0
-    close_to_puck: 0.0
-    puck_velocity_toward_goal: 0.0
-    defensive_position: 0.15
-    center_coverage: 0.15
-    action_penalty: 0.0001  # Small action penalty
-    unnecessary_movement: 0.002
-    teammate_collision: 0.3
-
-# ============================================
-# PHASE 4: FULL GAME
-# ============================================
-# Goal: Master full game against varied opponents
-# Success: Consistent win rate, no explosions
-# Rewards: Full tactical awareness
-phase_4:
   name: "full_game"
   timesteps: 200000
-  opponent_type: "mixed"  # Mix of random/simple
+  opponent_type: "simple"
   max_score: 5
   max_steps: 1800
-  learning_rate: 0.0002  # Very conservative LR
-  ent_coef: 0.05  # Low exploration (exploit skills)
-  clip_range: 0.15  # Tighter clipping for stability
-  
+  learning_rate: 0.0005  # Higher LR than before (more aggressive learning)
+  ent_coef: 0.10  # Higher entropy (more exploration)
+  clip_range: 0.2
   rewards:
     approach_puck_in_half: 0.0
     close_to_puck: 0.0
     puck_velocity_toward_goal: 0.0
-    defensive_position: 0.2
-    center_coverage: 0.2
-    action_penalty: 0.0001
-    unnecessary_movement: 0.005
+    defensive_position: 0.0  # ← ZERO defensive rewards!
+    center_coverage: 0.0      # ← ZERO coverage rewards!
+    action_penalty: 0.0
+    unnecessary_movement: 0.0
     teammate_collision: 0.3
 
 # ============================================
-# EXPECTED BEHAVIOR
+# AGGRESSIVE CURRICULUM SUMMARY
 # ============================================
+# Total: 500,000 timesteps (~1 hour)
 # 
-# Phase 1 (0-150k):
-#   - Agents consistently approach puck
-#   - 5-10 contacts per episode
-#   - Reward: 50-200 per episode
-# 
-# Phase 2 (150k-300k):
-#   - Regular goals (0.5-2 per episode)
-#   - Good shot accuracy
-#   - Reward: 200-500 per episode
-# 
-# Phase 3 (300k-450k):
-#   - Win rate >50% vs simple AI
-#   - Defensive positioning
-#   - Team coordination
-# 
-# Phase 3.5 (450k-550k):
-#   - Refined tactics
-#   - Stable performance
-#   - Smooth transition to full game
-# 
-# Phase 4 (550k-750k):
-#   - Mastery of full game
-#   - No numerical issues
-#   - Consistent performance
+# Phase 1: Learn hitting (vs static)
+# Phase 2: Learn shooting (vs static)  
+# Phase 3: Full game (vs simple AI)
+#
+# NO defensive training - pure offense!
+# Agents rewarded ONLY for:
+# - Approaching puck (+5/step)
+# - Hitting puck (+100)
+# - Shooting toward goal (+200)
+# - Scoring goals (+1000)
