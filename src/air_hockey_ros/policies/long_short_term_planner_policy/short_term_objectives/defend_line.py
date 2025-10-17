@@ -1,5 +1,11 @@
 from typing import Dict, List, Tuple
+from enum import IntEnum
 from .objective import Objective
+
+class DefenseRowEnum(IntEnum):
+    BOTTOM = 0
+    CENTER = 1
+    UP = 2
 
 class DefendLine(Objective):
     def __init__(self, agent_id, teammate_ids, commands, rules: Dict, **params):
@@ -7,20 +13,20 @@ class DefendLine(Objective):
         self.paddle_radius = rules.get('paddle_radius', 20)
         self.y_center = rules.get('height', 600) / 2.0
         self.limit_x = rules.get('width', 800) - self.paddle_radius
-        self.paddle_diameter = self.paddle_radius * 2
         puck_radius = rules.get('puck_radius', 12)
         self.puck_distance = self.paddle_radius + puck_radius
         self.unit_speed_px = rules.get('unit_speed_px', 4.0)
+        self.paddle_distance = self.paddle_radius * 2 + self.unit_speed_px
         self.puck_max_speed = rules.get('puck_max_speed', 6.0)
         self.puck_third_speed = self.puck_max_speed / 3.0
-        self.rows: List[Tuple[float, float]] = params['rows']
-        self.set_row(row_index=params.get('default_row_index', 0))
+        self.rows: List[Tuple[float, float]] = params['defense_rows']
+        self.set_row(params.get('defense_row', DefenseRowEnum.BOTTOM))
         threat_multiplier = params.get('threat_multiplier', 2)
         self.puck_threat_distance = self.puck_distance * threat_multiplier
         self.lead_coef = params.get('lead_coef', 0.5)
 
-    def set_row(self, row_index: int):
-        row = self.rows[row_index]
+    def set_row(self, row_enum: DefenseRowEnum):
+        row = self.rows[row_enum]
         self.min_x_band = row[0]
         self.max_x_band = row[1]
         self.min_encounter = row[0] - self.paddle_radius
@@ -53,7 +59,7 @@ class DefendLine(Objective):
         Params: row (int) -> select band immediately.
         """
         # 1) select row immediately (explicit requirement)
-        self.set_row(row_index=params['row'])
+        self.set_row(params['defense_row'])
         self.new_ws_step(ws)
 
     def new_ws_step(self, ws: dict):
@@ -202,7 +208,7 @@ class DefendLine(Objective):
             for tid in teammate_ids:
                 tx, ty = self.agent_x[tid], self.agent_y[tid]
                 if ((self.min_encounter < tx < self.max_encounter)
-                        and abs(ty - self.exp_y) <= self.paddle_diameter):
+                        and abs(ty - self.exp_y) <= self.paddle_distance):
                     if self.uy == 0:  # if we were holding, nudge away from overlap
                         self.uy = -1 if ty > self.exp_y else 1
                     break
