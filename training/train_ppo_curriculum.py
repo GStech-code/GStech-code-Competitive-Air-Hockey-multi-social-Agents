@@ -327,7 +327,7 @@ class CurriculumPPOTrainer(PPOTrainer):
         n_updates = 0
         
         # === FIX 5: Early stopping on KL divergence ===
-        target_kl = 0.03  # Less aggressive early stopping (increased from 0.02)
+        target_kl = 0.04  # Less aggressive early stopping (increased from 0.02)
         
         for epoch in range(self.config.n_epochs):
             indices = np.arange(len(obs))
