@@ -52,6 +52,8 @@ class BaseEngine:
         self.team_a_score = 0
         self.team_b_score = 0
 
+        self.half_line_policy = "clamp"  # Default to enforcing half-line
+
         self.agent_x = []
         self.agent_y = []
         self.agent_vx = []
@@ -105,6 +107,8 @@ class BaseEngine:
         self.stuck_window = int(params.get("stuck_window", 60))
         self.puck_max_speed = float(params.get("puck_max_speed", 6.0))
         self.stuck_px_boundary = float(params.get("stuck_px_boundary", 20.0))
+
+        self.half_line_policy = params.get("half_line_policy", "clamp")
 
         if self.jitter_seed is not None:
             self._rng = random.Random(self.jitter_seed)
@@ -173,8 +177,11 @@ class BaseEngine:
 
     def _enforce_bounds_and_halfline(self) -> None:
         """
-        Keep agents inside the rink; apply HARD half-line policy.
-        Agents CANNOT cross the halfway line (air hockey rule).
+        Keep agents inside the rink; apply half-line policy based on configuration.
+        
+        half_line_policy options:
+        - "clamp" (default): Agents CANNOT cross the halfway line (air hockey rule)
+        - "allow": No half-line restriction (for testing/special modes)
         """
         r = self.paddle_radius
         w = self.width
@@ -182,23 +189,24 @@ class BaseEngine:
         half_line = self.half_line_pos  # This is width / 2
 
         for i in range(len(self.agent_x)):
-            # Walls (full rink)
+            # Walls (full rink) - ALWAYS enforced
             if self.agent_y[i] < r:
                 self.agent_y[i] = r
             elif self.agent_y[i] > h - r:
                 self.agent_y[i] = h - r
 
-            # Half-line enforcement (HARD CONSTRAINT)
-            # Team A (agents 0 to num_team_a-1) must stay on LEFT side (x < half_line)
-            # Team B (remaining agents) must stay on RIGHT side (x > half_line)
-            if self.agent_team[i] == 0:  # Team A
-                if self.agent_x[i] > half_line - r:
-                    self.agent_x[i] = half_line - r
-            else:  # Team B
-                if self.agent_x[i] < half_line + r:
-                    self.agent_x[i] = half_line + r
+            # Half-line enforcement - ONLY if policy is "clamp"
+            if self.half_line_policy == "clamp":
+                # Team A (agents 0 to num_team_a-1) must stay on LEFT side (x < half_line)
+                # Team B (remaining agents) must stay on RIGHT side (x > half_line)
+                if self.agent_team[i] == 0:  # Team A
+                    if self.agent_x[i] > half_line - r:
+                        self.agent_x[i] = half_line - r
+                else:  # Team B
+                    if self.agent_x[i] < half_line + r:
+                        self.agent_x[i] = half_line + r
             
-            # Left/right walls
+            # Left/right walls - ALWAYS enforced
             if self.agent_x[i] < r:
                 self.agent_x[i] = r
             elif self.agent_x[i] > w - r:
@@ -286,28 +294,28 @@ class BaseEngine:
             self.agent_x[i] += self.agent_vx[i]
             self.agent_y[i] += self.agent_vy[i]
 
-    def _enforce_bounds_and_halfline(self) -> None:
-        """
-        Keep agents inside the rink; apply half-line policy.
-        - "clamp": hard restrict to own half
-        - "allow": no half restriction
-        - "soft": no clamp (you can later emit a violation flag if you want)
-        """
-        r = self.paddle_radius
-        w = self.width
-        h = self.height
-
-        for i in range(len(self.agent_x)):
-            # Walls (full rink)
-            if self.agent_y[i] < r:
-                self.agent_y[i] = r
-            elif self.agent_y[i] > h - r:
-                self.agent_y[i] = h - r
-
-            if self.agent_x[i] < r:
-                self.agent_x[i] = r
-            elif self.agent_x[i] > w - r:
-                self.agent_x[i] = w - r
+#    def _enforce_bounds_and_halfline(self) -> None:
+#        """
+#        Keep agents inside the rink; apply half-line policy.
+#        - "clamp": hard restrict to own half
+#        - "allow": no half restriction
+#        - "soft": no clamp (you can later emit a violation flag if you want)
+#        """
+#        r = self.paddle_radius
+#        w = self.width
+#        h = self.height
+#
+#        for i in range(len(self.agent_x)):
+#            # Walls (full rink)
+#            if self.agent_y[i] < r:
+#                self.agent_y[i] = r
+#            elif self.agent_y[i] > h - r:
+#                self.agent_y[i] = h - r
+#
+#            if self.agent_x[i] < r:
+#                self.agent_x[i] = r
+#            elif self.agent_x[i] > w - r:
+#                self.agent_x[i] = w - r
 
     def _collide_puck_agents(self) -> None:
         pr = self.puck_radius

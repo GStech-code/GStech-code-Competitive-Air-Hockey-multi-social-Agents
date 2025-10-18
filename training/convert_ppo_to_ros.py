@@ -85,25 +85,22 @@ def convert_checkpoint(
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
     
-    print(f"\nCreating {num_agents * 2} agent policies...")
-    
+    print(f"\nCreating {num_agents} agent policies for Team A...")
+
     # Convert state dict to CPU
     cpu_state_dict = {k: v.cpu() if isinstance(v, torch.Tensor) else v 
-                      for k, v in state_dict.items()}
-    
-    # Create and save agent policies
-    for agent_id in range(num_agents * 2):
-        team_agents = num_agents
-        opponent_agents = num_agents
-        
+                    for k, v in state_dict.items()}
+
+    # Create and save agent policies (ONLY for Team A)
+    for agent_id in range(num_agents):  # ← CHANGED from num_agents * 2
         policy = PPOAgentPolicy(
             network_state_dict=copy.deepcopy(cpu_state_dict),
             obs_dim=obs_dim,
             hidden_dim=hidden_dim,
             action_dim=action_dim,
             agent_id=agent_id,
-            num_team_agents=team_agents,
-            num_opponent_agents=opponent_agents,
+            num_team_agents=num_agents,
+            num_opponent_agents=num_agents,
             scenario_params=scenario_params,
             device='cpu'
         )
@@ -113,13 +110,13 @@ def convert_checkpoint(
             pickle.dump(policy, f)
         
         print(f"  ✓ Saved: {policy_file.name}")
-    
+
     print(f"\n{'='*60}")
     print(f"✓ Conversion Complete!")
     print(f"{'='*60}")
-    print(f"\nCreated {num_agents * 2} policy files")
+    print(f"\nCreated {num_agents} policy files for Team A")  # ← CHANGED
+    print(f"Opponents will be generated dynamically during testing")  # ← ADD THIS
     print(f"\nTo test: python test_ros_agent.py --policy-dir {output_dir}")
-    print()
 
 
 def main():
