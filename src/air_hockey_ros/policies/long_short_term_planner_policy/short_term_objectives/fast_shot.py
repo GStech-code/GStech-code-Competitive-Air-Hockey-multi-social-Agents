@@ -3,14 +3,9 @@ from enum import IntEnum
 import math
 from .objective import Objective
 
-class StrikeLaneEnum(IntEnum):
-    LEFT = 0
-    CENTER = 1
-    RIGHT = 2
 class FastShot(Objective):
     """
     O1: Fast Shot (Direct)
-    - One param: strike_lane ∈ {0:left, 1:center, 2:right}
     - Simple teammate avoidance, shallow wall bias, half-line guard.
     - ≤ 2 discrete commands per tick.
     """
@@ -37,10 +32,6 @@ class FastShot(Objective):
         self.goal_min = self.lane_center - half_goal_gap
         self.goal_max = self.lane_center + half_goal_gap
         half_goal_gap_offset = half_goal_gap * goal_gap_offest
-        self.strike_lanes = (self.lane_center - half_goal_gap_offset,
-                             self.lane_center,
-                             self.lane_center + half_goal_gap_offset)
-        self.set_strike_lane(params.get("strike_lane", StrikeLaneEnum.CENTER))
 
 
         # --- Contact windows & pads ---
@@ -69,9 +60,6 @@ class FastShot(Objective):
     @staticmethod
     def _sign(v: float) -> int:
         return 0 if v == 0 else (1 if v > 0 else -1)
-
-    def set_strike_lane(self, lane_enum: StrikeLaneEnum):
-        self.lane_target = self.strike_lanes[lane_enum]
 
     def puck_dir_changed(self, pvx, pvy):
         # If both were or are static → no direction change
@@ -158,7 +146,6 @@ class FastShot(Objective):
 
         self.intro_step(ws, **params)
     def intro_step(self, ws: Dict, **params):
-        self.set_strike_lane(params["strike_lane"])
         self.last_ws = ws
         self.assume_puck_hit = False
         self.last_pvx, self.last_pvy = ws["puck_vx"], ws["puck_vy"]
@@ -201,7 +188,7 @@ class FastShot(Objective):
         # Assume hit, commands will change if no hit or actual miss
         if self.assume_puck_hit:
             ux = -1 if exp_x > self._fence_x else 0
-            lane_y = self.lane_target
+            lane_y = self.lane_center
             uy = 0 if abs(lane_y - exp_y) <= self.unit else self._sign(lane_y - exp_y)
             yn = self._teammate_y_nudge(ws, exp_x, exp_y)
             if yn != 0:
@@ -223,7 +210,7 @@ class FastShot(Objective):
             if (exp_x - fut_px <= self._hit_d2) and (abs(dy) <= self._hit_d2):
                 # Move slightly forward unless blocked by half-line
                 ux1, ux2 = self._guard_halfline_twice(exp_x)
-                uy = 0 if abs(dy) <= self.unit else self._sign(dy)
+                uy = 1 if dy < 0 else -1
                 self.commands.push_multiple([(ux1, uy), (ux2, uy)])
                 return
 
@@ -232,7 +219,7 @@ class FastShot(Objective):
             quarter_line = self.quarter_line
             if fut_px < quarter_line:
                 # Stay upper field; align to chosen strike lane (don’t chase to bottom)
-                lane_y = self.lane_target
+                lane_y = self.lane_center
                 uy = 0 if abs(lane_y - exp_y) <= self.unit else self._sign(lane_y - exp_y)
 
                 # mild retreat to prep for re-entry (never cross half)
@@ -266,7 +253,7 @@ class FastShot(Objective):
             if pvx > 0:
                 # If it's probably a goal already: hold line, align to rebound-friendly Y (center lane).
                 # Else: still hold line; align toward our chosen strike lane to be ready for turnover.
-                target_y = self.lane_center if self._goal_predicted(px, py, pvx, pvy) else self.lane_target
+                target_y = self.lane_center
                 dy = target_y - exp_y
                 uy = 0 if abs(dy) <= self.unit else self._sign(dy)
                 # Small teammate/wall adjustments on the chosen uy
@@ -297,11 +284,11 @@ class FastShot(Objective):
             dy = fut_py - exp_y
             if (fut_px - exp_x <= self._hit_d2) and (abs(dy) <= self._hit_d2):
                 # Move slightly backwards if about to hit the puck
-                uy = 0 if abs(dy) <= self.unit else self._sign(dy)
+                uy = 1 if dy < 0 else -1
                 ux = -1
             else:
                 ux = -1 if exp_x > self._fence_x else 0
-                lane_y = self.lane_target
+                lane_y = self.lane_center
                 uy = 0 if abs(lane_y - exp_y) <= self.unit else self._sign(lane_y - exp_y)
                 yn = self._teammate_y_nudge(ws, exp_x, exp_y)
                 if yn != 0:
@@ -330,7 +317,7 @@ class FastShot(Objective):
         dx = fut_px - exp_x
         dy = fut_py - exp_y
         if abs(dy) <= self.double_unit and dx > self.double_unit:
-            lane_y = self.lane_target
+            lane_y = self.lane_center
             dy = lane_y - exp_y
         uy = 0 if abs(dy) <= self.unit else self._sign(dy)
 

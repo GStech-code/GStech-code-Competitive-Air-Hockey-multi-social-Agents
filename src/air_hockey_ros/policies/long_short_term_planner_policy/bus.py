@@ -79,6 +79,10 @@ class STCommandQueue:
             self.y_adv -= cmd[1]
             return cmd
 
+    def peek_all(self) -> List[Command]:
+        with self._lock:
+            return [cmd for cmd in self._dq]
+
     def flush_newest(self, k: int) -> None:
         popped = 0
         sx, sy = 0, 0
