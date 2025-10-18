@@ -39,7 +39,7 @@ class ShortTermPlanner:
             self.current_objective_enum, params = self.latest_instruction.get()
             seq_id, ws = self.latest_frame.get()
             self.commands.flush_limit()
-            self.objectives[self.current_objective_enum].intro_step(ws, **params)
+            self.objectives[self.current_objective_enum].intro_step(ws)
             self.last_seq_id = seq_id
         else:
             existing_commands = self.commands.get_size()
@@ -60,5 +60,5 @@ class ShortTermPlanner:
         self.current_objective_enum, params = self.latest_instruction.get()
         seq_id, ws = self.latest_frame.get()
         self.commands.clear()
-        self.objectives[self.current_objective_enum].emergency_step(ws, **params)
+        self.objectives[self.current_objective_enum].emergency_step(ws)
         self.last_seq_id = seq_id

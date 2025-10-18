@@ -1,8 +1,9 @@
 from enum import IntEnum
 from .defend_line import DefendLine
+from .intercept import Intercept
 from .fast_shot import FastShot
 
-OBJECTIVES = [DefendLine, FastShot]
+OBJECTIVES = [DefendLine, Intercept, FastShot]
 
 class ObjectiveEnum(IntEnum):
     DEFEND_LINE = 0

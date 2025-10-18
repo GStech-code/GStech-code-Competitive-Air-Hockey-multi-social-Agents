@@ -2,11 +2,6 @@ from typing import Dict, List, Tuple
 from enum import IntEnum
 from .objective import Objective
 
-class DefenseRowEnum(IntEnum):
-    BOTTOM = 0
-    CENTER = 1
-    UP = 2
-
 class DefendLine(Objective):
     def __init__(self, agent_id, teammate_ids, commands, rules: Dict, **params):
         super().__init__(agent_id, commands, teammate_ids, rules, **params)
@@ -20,19 +15,17 @@ class DefendLine(Objective):
         self.puck_max_speed = rules.get('puck_max_speed', 6.0)
         self.puck_third_speed = self.puck_max_speed / 3.0
         self.rows: List[Tuple[float, float]] = params['defense_rows']
-        self.set_row(params.get('defense_row', DefenseRowEnum.BOTTOM))
+        row = params.get('defense_row', rules.get('goal_offset', 40) + self.paddle_radius + self.unit_speed_px)
+        half_unit = self.unit_speed_px / 2
+        self.min_x_band = row - half_unit
+        self.max_x_band = row + half_unit
+        self.min_encounter = self.min_x_band - self.paddle_radius
+        self.max_encounter = self.max_x_band + self.paddle_radius
         threat_multiplier = params.get('threat_multiplier', 2)
         self.puck_threat_distance = self.puck_distance * threat_multiplier
         self.lead_coef = params.get('lead_coef', 0.5)
 
-    def set_row(self, row_enum: DefenseRowEnum):
-        row = self.rows[row_enum]
-        self.min_x_band = row[0]
-        self.max_x_band = row[1]
-        self.min_encounter = row[0] - self.paddle_radius
-        self.max_encounter = row[1] + self.paddle_radius
-
-    def emergency_step(self, ws: Dict, **params):
+    def emergency_step(self, ws: Dict):
         """
         Called after an offensive objective; queue is empty.
         Must issue the *first* command fast, and end with ~2–3 total commands.
@@ -50,16 +43,15 @@ class DefendLine(Objective):
         else:
             self.commands.push((-1, 0))
 
-        self.intro_step(ws, **params)
+        self.intro_step(ws)
 
-    def intro_step(self, ws: Dict, **params):
+    def intro_step(self, ws: Dict):
         """
         Called when switching into DefendLine after non-offensive objectives.
         Queue size at entry: 0..2 (min-limit). Usually followed by continue_step().
         Params: row (int) -> select band immediately.
         """
         # 1) select row immediately (explicit requirement)
-        self.set_row(params['defense_row'])
         self.new_ws_step(ws)
 
     def new_ws_step(self, ws: dict):
