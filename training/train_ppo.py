@@ -202,62 +202,56 @@ class AirHockeyEnv:
     
     def _compute_rewards(self, prev_state: Dict, new_state: Dict, actions: np.ndarray) -> np.ndarray:
         """
-        FIXED REWARD STRUCTURE
-        
-        Team-based rewards with DENSE signals for learning:
-        1. Goal rewards (shared by team)
-        2. Dense approach rewards (NEW! - critical for Phase 1)
-        3. Proximity rewards (NEW! - encourages staying near puck)
-        4. Contact rewards (individual to hitter)
-        5. Shooting rewards (individual to shooter)
+        PURE OFFENSIVE REWARDS
+        Focus: Chase puck, hit puck, shoot puck, score goals
         """
         rewards = np.zeros(self.num_team_a, dtype=np.float32)
         
-        # === 1. GOAL REWARDS - SHARED BY ENTIRE TEAM ===
+        # === 1. GOAL REWARDS ===
         goal_reward = 0.0
         if new_state['team_a_score'] > prev_state['team_a_score']:
-            goal_reward = 1000.0  # Team scored!
+            goal_reward = 1000.0  # SCORE!
         if new_state['team_b_score'] > prev_state['team_b_score']:
-            goal_reward = -1000.0  # Team was scored on!
-        
+            goal_reward = -1000.0  # Got scored on (natural defensive pressure)
         rewards += goal_reward
         
-        # Get puck positions
+        # Get positions
         puck_x = new_state['puck_x']
         puck_y = new_state['puck_y']
         prev_puck_x = prev_state['puck_x']
         prev_puck_y = prev_state['puck_y']
+        hit_distance = self.engine.paddle_radius + self.engine.puck_radius + 15
         
-        # === 2. DENSE APPROACH REWARDS (NEW!) ===
-        # This is CRITICAL - agents need immediate feedback for approaching puck
+        # === 2. APPROACH REWARDS (offensive) ===
         for i in range(self.num_team_a):
             agent_x = new_state['agent_x'][i]
             agent_y = new_state['agent_y'][i]
             prev_agent_x = prev_state['agent_x'][i]
             prev_agent_y = prev_state['agent_y'][i]
             
-            # Calculate distances
             dist_to_puck = np.hypot(agent_x - puck_x, agent_y - puck_y)
             prev_dist_to_puck = np.hypot(prev_agent_x - prev_puck_x, prev_agent_y - prev_puck_y)
             
-            # REWARD: Moving closer to puck
+            # Moving toward puck
             distance_improvement = prev_dist_to_puck - dist_to_puck
             if distance_improvement > 0:
-                # Use tanh to prevent reward explosion
-                # Max reward: ~5.0 per step for significant movement
                 approach_reward = 5.0 * np.tanh(distance_improvement / 20.0)
                 rewards[i] += approach_reward
             
-            # === 3. PROXIMITY REWARD (NEW!) ===
-            # Reward for being near the puck (independent of movement)
-            hit_distance = self.engine.paddle_radius + self.engine.puck_radius + 15
-            if dist_to_puck < hit_distance * 1.5:  # Within 1.5x hitting range
-                # Proximity factor: 1.0 when touching, 0.0 at max range
-                proximity_factor = 1.0 - (dist_to_puck / (hit_distance * 1.5))
-                proximity_reward = 2.0 * proximity_factor
-                rewards[i] += proximity_reward
+            # === 3. PUSH REWARD (get close to hit) ===
+            if dist_to_puck < hit_distance * 2.0:
+                if dist_to_puck < hit_distance:
+                    # Very close - strong push
+                    push_factor = (hit_distance - dist_to_puck) / hit_distance
+                    push_reward = 20.0 * push_factor
+                    rewards[i] += push_reward
+                else:
+                    # Getting closer
+                    range_factor = (hit_distance * 2.0 - dist_to_puck) / hit_distance
+                    approach_bonus = 5.0 * range_factor
+                    rewards[i] += approach_bonus
         
-        # === 4. DETECT PUCK VELOCITY CHANGE (Contact Detection) ===
+        # === 4. CONTACT DETECTION ===
         new_puck_vx = new_state['puck_vx']
         new_puck_vy = new_state['puck_vy']
         prev_puck_vx = prev_state.get('puck_vx', 0.0)
@@ -265,11 +259,9 @@ class AirHockeyEnv:
         
         delta_puck_vx = new_puck_vx - prev_puck_vx
         delta_puck_vy = new_puck_vy - prev_puck_vy
-        puck_vel_change_magnitude = np.hypot(delta_puck_vx, delta_puck_vy)
+        puck_vel_change = np.hypot(delta_puck_vx, delta_puck_vy)
         
-        if puck_vel_change_magnitude > 0.5:  # Significant velocity change
-            hit_distance = self.engine.paddle_radius + self.engine.puck_radius + 15
-            
+        if puck_vel_change > 0.3:
             best_agent = None
             best_alignment = -1.0
             
@@ -281,34 +273,31 @@ class AirHockeyEnv:
                 
                 dist_to_puck_now = np.hypot(agent_x - puck_x, agent_y - puck_y)
                 
-                if dist_to_puck_now < hit_distance:
-                    # Agent's movement this step
+                if dist_to_puck_now < hit_distance * 1.2:
                     agent_dx = agent_x - prev_agent_x
                     agent_dy = agent_y - prev_agent_y
                     agent_movement = np.hypot(agent_dx, agent_dy)
                     
-                    if agent_movement > 0.1:  # Agent actually moved
-                        # Normalize vectors
+                    if agent_movement > 0.05:
                         agent_dx_norm = agent_dx / agent_movement
                         agent_dy_norm = agent_dy / agent_movement
-                        delta_vx_norm = delta_puck_vx / puck_vel_change_magnitude
-                        delta_vy_norm = delta_puck_vy / puck_vel_change_magnitude
+                        delta_vx_norm = delta_puck_vx / puck_vel_change
+                        delta_vy_norm = delta_puck_vy / puck_vel_change
                         
-                        # Check alignment: does puck move in same direction as agent?
                         alignment = agent_dx_norm * delta_vx_norm + agent_dy_norm * delta_vy_norm
                         
                         if alignment > best_alignment:
                             best_alignment = alignment
                             best_agent = i
             
-            # === 5. CONTACT REWARD - ONLY TO HITTING AGENT ===
-            if best_agent is not None and best_alignment > 0.3:
-                rewards[best_agent] += 20.0  # Contact reward
+            # === 5. CONTACT REWARD (aggressive hitting) ===
+            if best_agent is not None and best_alignment > 0.2:
+                rewards[best_agent] += 100.0  # BIG reward for hitting
                 
-                # === 6. SHOOTING REWARD - ONLY TO HITTING AGENT ===
+                # === 6. SHOOTING REWARD (score-focused) ===
                 if new_puck_vx > 0:  # Moving toward opponent goal
                     shot_power = min(new_puck_vx / self.engine.puck_max_speed, 1.0)
-                    rewards[best_agent] += 80.0 * shot_power
+                    rewards[best_agent] += 200.0 * shot_power  # HUGE reward for shooting
         
         return rewards
     

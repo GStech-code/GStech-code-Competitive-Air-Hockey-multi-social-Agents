@@ -97,6 +97,10 @@ class CurriculumPhase:
         self.learning_rate = config.get('learning_rate', base_config.learning_rate)
         self.ent_coef = config.get('ent_coef', base_config.ent_coef)
         self.clip_range = config.get('clip_range', base_config.clip_range)
+        
+        # Read phase-specific team sizes
+        self.num_agents_team_b = config.get('num_agents_team_b', base_config.num_agents_team_b)
+        
         self.rewards = config.get('rewards', {})
 
 
@@ -148,21 +152,20 @@ class CurriculumTrainer:
     
     def train(self):
         """Run curriculum learning across all phases"""
-        self.logger.info("=" * 60)
+        self.logger.info("")
         self.logger.info("CURRICULUM LEARNING STARTED")
-        self.logger.info("=" * 60)
         
         trainer = None
         total_timesteps_so_far = 0
         
         for phase_idx, phase in enumerate(self.phases):
             self.logger.info("")
-            self.logger.info("=" * 60)
+            self.logger.info("=" * 30)
             self.logger.info(f"PHASE {phase_idx + 1}/{len(self.phases)}: {phase.name.upper()}")
             self.logger.info(f"Timesteps: {phase.timesteps:,}")
             self.logger.info(f"Opponent: {phase.opponent_type}")
             self.logger.info(f"LR: {phase.learning_rate}, Entropy: {phase.ent_coef}")
-            self.logger.info("=" * 60)
+            self.logger.info("=" * 30)
             
             # Create or update trainer
             if trainer is None:
@@ -209,10 +212,10 @@ class CurriculumTrainer:
             self.logger.info(f"Phase {phase_idx + 1} complete. Total timesteps: {total_timesteps_so_far:,}")
         
         self.logger.info("")
-        self.logger.info("=" * 60)
+        self.logger.info("=" * 30)
         self.logger.info("CURRICULUM LEARNING COMPLETED!")
         self.logger.info(f"Total timesteps: {total_timesteps_so_far:,}")
-        self.logger.info("=" * 60)
+        self.logger.info("=" * 30)
 
 
 # ============================================
@@ -224,6 +227,10 @@ class CurriculumPPOTrainer(PPOTrainer):
     
     def __init__(self, config: PPOConfig, scenario_params: dict, initial_phase: CurriculumPhase):
         super().__init__(config, scenario_params)
+        
+        # Store scenario_params so _generate_opponent_actions can access it
+        self.scenario_params = scenario_params
+        
         self.current_phase = initial_phase
         self.phase_rollout_count = 0
         self.prev_actions = None
@@ -241,10 +248,7 @@ class CurriculumPPOTrainer(PPOTrainer):
         self.update_for_phase(initial_phase)
     
     def update_for_phase(self, phase: CurriculumPhase):
-        """
-        FIXED: Update trainer settings for new curriculum phase
-        Includes value function reset and reward normalizer reset
-        """
+        """Update trainer settings for new curriculum phase"""
         prev_phase_name = self.current_phase.name if hasattr(self, 'current_phase') else None
         self.current_phase = phase
         self.phase_rollout_count = 0
@@ -258,19 +262,29 @@ class CurriculumPPOTrainer(PPOTrainer):
         for param_group in self.optimizer.param_groups:
             param_group['lr'] = phase.learning_rate
         
-        # Update entropy and clipping
+        # Update entropy coefficient
         self.config.ent_coef = phase.ent_coef
         self.config.clip_range = phase.clip_range
         
-        # === CRITICAL FIX 1: Reset value head at phase transition ===
-        if prev_phase_name is not None and prev_phase_name != phase.name:
-            if hasattr(self.agent, 'reset_value_head'):
-                self.agent.reset_value_head()
-                self.logger.info("✓ Value head reset for new phase")
+        # ONLY reset value function for major transitions
+        should_reset = (
+            prev_phase_name is None or  # First phase
+            (prev_phase_name == "learn_hitting" and phase.name == "learn_shooting")  # Hitting -> Shooting
+        )
+        
+        if should_reset:
+            # Reset value head
+            if hasattr(self.agent, 'critic'):
+                self.agent.critic.apply(lambda m: (
+                    m.reset_parameters() if hasattr(m, 'reset_parameters') else None
+                ))
+            self.logger.info("✓ Value head reset for new phase")
             
-            # === CRITICAL FIX 2: Reset reward normalizer ===
+            # Reset reward normalizer
             self.reward_normalizer = RunningMeanStd(clip_range=10.0)
             self.logger.info("✓ Reward normalizer reset")
+        else:
+            self.logger.info("→ Continuing without reset (similar task)")
         
         self.logger.info(f"Updated for phase: {phase.name}")
         self.logger.info(f"  LR: {phase.learning_rate}, Entropy: {phase.ent_coef}")
@@ -278,7 +292,7 @@ class CurriculumPPOTrainer(PPOTrainer):
     
     def update_policy(self):
         """
-        FIXED: PPO update with numerical stability improvements
+        PPO update with numerical stability improvements + Entropy Decay
         """
         # Flatten buffers
         obs = np.array(self.obs_buffer).reshape(-1, self.env.obs_dim)
@@ -310,7 +324,7 @@ class CurriculumPPOTrainer(PPOTrainer):
         n_updates = 0
         
         # === FIX 5: Early stopping on KL divergence ===
-        target_kl = 0.02
+        target_kl = 0.05   # More permissive, but still controlled
         
         for epoch in range(self.config.n_epochs):
             indices = np.arange(len(obs))
@@ -338,7 +352,7 @@ class CurriculumPPOTrainer(PPOTrainer):
                 # Policy loss (PPO clip)
                 surr1 = ratio * advantages_tensor[mb_indices]
                 surr2 = torch.clamp(ratio, 1 - self.config.clip_range, 
-                                   1 + self.config.clip_range) * advantages_tensor[mb_indices]
+                                1 + self.config.clip_range) * advantages_tensor[mb_indices]
                 policy_loss = -torch.min(surr1, surr2).mean()
                 
                 # === FIX 7: Clipped value loss ===
@@ -360,14 +374,14 @@ class CurriculumPPOTrainer(PPOTrainer):
                 
                 # Total loss
                 loss = (policy_loss + 
-                       self.config.vf_coef * value_loss + 
-                       self.config.ent_coef * entropy_loss)
+                    self.config.vf_coef * value_loss + 
+                    self.config.ent_coef * entropy_loss)
                 
                 # === FIX 8: Gradient clipping with monitoring ===
                 self.optimizer.zero_grad()
                 loss.backward()
                 grad_norm = nn.utils.clip_grad_norm_(self.agent.parameters(), 
-                                                      self.config.max_grad_norm)
+                                                    self.config.max_grad_norm)
                 
                 # Detect gradient issues
                 if torch.isnan(grad_norm) or torch.isinf(grad_norm):
@@ -393,8 +407,24 @@ class CurriculumPPOTrainer(PPOTrainer):
             
             if mean_epoch_kl > target_kl:
                 self.logger.info(f"  Early stopping at epoch {epoch+1}/{self.config.n_epochs} "
-                               f"(KL={mean_epoch_kl:.4f} > {target_kl})")
+                            f"(KL={mean_epoch_kl:.4f} > {target_kl})")
                 break
+        
+        # === FIX 10: ENTROPY DECAY - Gradually reduce exploration ===
+        # This prevents the policy from staying random forever
+        old_ent_coef = self.config.ent_coef
+        decay_rate = 0.99  # ← CHANGE from 0.9995
+        min_ent_coef = 0.001
+        
+        self.config.ent_coef = max(min_ent_coef, self.config.ent_coef * decay_rate)
+        
+        # Log entropy decay every 50 updates for monitoring
+        if not hasattr(self, '_update_count'):
+            self._update_count = 0
+        self._update_count += 1
+        
+        if self._update_count % 50 == 0:
+            self.logger.info(f"  Entropy coefficient decayed: {old_ent_coef:.6f} → {self.config.ent_coef:.6f}")
         
         # Store diagnostic info
         self.diagnostics['value_estimates'].append(np.mean([v.mean() for v in self.value_buffer]))
@@ -405,6 +435,7 @@ class CurriculumPPOTrainer(PPOTrainer):
             'entropy': total_entropy / n_updates if n_updates > 0 else 0,
             'clipfrac': total_clipfrac / n_updates if n_updates > 0 else 0,
             'approx_kl': total_kl / (epoch + 1),
+            'ent_coef': self.config.ent_coef,  # Track current entropy coefficient
         }
     
     def train_phase(self, timesteps: int):
@@ -460,7 +491,9 @@ class CurriculumPPOTrainer(PPOTrainer):
                     if update_info['entropy'] < 0.1:
                         self.logger.warning("⚠️  Very low entropy - policy collapsed!")
                     
-                    if mean_goals_for == 0 and mean_goals_against == 0 and rollout > 20:
+                    # Only warn about no goals if we're past Phase 1
+                    if (mean_goals_for == 0 and mean_goals_against == 0 and 
+                        rollout > 30 and self.current_phase.name != "learn_hitting"):
                         self.logger.warning("⚠️  No goals - agents may not be hitting puck!")
             
             # Save checkpoint during phase
@@ -494,9 +527,12 @@ class CurriculumPPOTrainer(PPOTrainer):
             # Generate opponent actions
             opponent_actions = self._generate_opponent_actions(opponent_type, world_state_before)
             
-            # Combine actions
+            # Combine actions (handle case with no opponents)
             team_a_actions = action.cpu().numpy()
-            all_actions = np.vstack([team_a_actions, opponent_actions])
+            if opponent_actions.shape[0] > 0:
+                all_actions = np.vstack([team_a_actions, opponent_actions])
+            else:
+                all_actions = team_a_actions
             
             # Step environment
             next_obs, base_reward, done, info = self.env.step(all_actions)
@@ -569,10 +605,24 @@ class CurriculumPPOTrainer(PPOTrainer):
             # Import simple policy
             from air_hockey_ros.policies.simple_policy import SimpleRegionalAgentPolicy
             actions = []
+            
+            # Access parameters from scenario_params (stored during __init__)
             for i in range(num_opponents):
                 agent_idx = self.config.num_agents_team_a + i
-                policy = SimpleRegionalAgentPolicy(agent_idx)
-                action = policy.compute_action(world_state)
+                
+                # Create policy with correct parameters from scenario_params
+                policy = SimpleRegionalAgentPolicy(
+                    agent_id=agent_idx,
+                    puck_radius=self.scenario_params['puck_radius'],
+                    paddle_radius=self.scenario_params['paddle_radius'],
+                    x_min=self.scenario_params['width'] // 2,  # Right half for opponents
+                    x_max=self.scenario_params['width'] - self.scenario_params['paddle_radius'],
+                    y_min=self.scenario_params['paddle_radius'],
+                    y_max=self.scenario_params['height'] - self.scenario_params['paddle_radius'],
+                    unit_speed_px=self.scenario_params['unit_speed_px']
+                )
+                
+                action = policy.update(world_state)  # Note: method is 'update', not 'compute_action'
                 actions.append(action)
             return np.array(actions, dtype=np.float32)
         elif opponent_type == "mixed":
@@ -584,8 +634,17 @@ class CurriculumPPOTrainer(PPOTrainer):
                 actions = []
                 for i in range(num_opponents):
                     agent_idx = self.config.num_agents_team_a + i
-                    policy = SimpleRegionalAgentPolicy(agent_idx)
-                    action = policy.compute_action(world_state)
+                    policy = SimpleRegionalAgentPolicy(
+                        agent_id=agent_idx,
+                        puck_radius=self.scenario_params['puck_radius'],
+                        paddle_radius=self.scenario_params['paddle_radius'],
+                        x_min=self.scenario_params['width'] // 2,
+                        x_max=self.scenario_params['width'] - self.scenario_params['paddle_radius'],
+                        y_min=self.scenario_params['paddle_radius'],
+                        y_max=self.scenario_params['height'] - self.scenario_params['paddle_radius'],
+                        unit_speed_px=self.scenario_params['unit_speed_px']
+                    )
+                    action = policy.update(world_state)
                     actions.append(action)
                 return np.array(actions, dtype=np.float32)
         else:
