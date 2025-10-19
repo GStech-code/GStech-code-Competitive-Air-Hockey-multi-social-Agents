@@ -6,8 +6,9 @@ from .fast_shot import FastShot
 
 OBJECTIVES = [DefendLine, Intercept, Pass_Shot, FastShot]
 
+
 class ObjectiveEnum(IntEnum):
     DEFEND_LINE = 0
     INTERCEPT = 1
-    PASS = 2
+    PASS_SHOT = 2
     FAST_SHOT = 3

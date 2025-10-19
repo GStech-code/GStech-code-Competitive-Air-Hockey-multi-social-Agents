@@ -28,7 +28,7 @@ class NeuralTeamPolicy(TeamPolicy):
             self.opponents_ids = [id for id in range(self.num_agents_team_a)]
 
     def get_policies(self) -> List[AgentPolicy]:
-        policies =  [NeuralAgentPolicy(agent_id=agent_id, device=self.device, width=self.width, height=self.height,
+        policies = [NeuralAgentPolicy(agent_id=agent_id, device=self.device, width=self.width, height=self.height,
                                   max_speed=self.max_speed, teammate_ids=teammates, opponent_ids=self.opponents_ids)
                 for agent_id, teammates in zip(self.agents_ids, self.teammates_ids)]
 

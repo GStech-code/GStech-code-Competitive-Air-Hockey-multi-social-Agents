@@ -20,8 +20,8 @@ class ShortTermPlanner:
         self.current_objective_enum = starting_objective_enum
         self.long_term_mode_func = None
         self.instruction: Optional[Tuple[ObjectiveEnum, Dict]] = None
-        self.commands_max_target = params.get('commands_target', self.commands.get_capacity())
-        self.commands_min_target = params.get('commands_min_target', self.commands.get_capacity() // 2)
+        self.commands_max_target = params.get('commands_target', self.commands.get_capacity() // 4)
+        self.commands_min_target = params.get('commands_min_target', self.commands_max_target - 2)
         self.commands_threshold = params.get('commands_threshold', 2)
         self.last_seq_id = -1
         self.rules = params.get('rules', {})
