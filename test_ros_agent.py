@@ -85,9 +85,8 @@ class ROSAgentTester:
         all_agents = self._load_agents()
         
         # ONLY use HALF the agents (Team A only)
-        self.num_agents = len(all_agents) // 2
-        self.agents = all_agents[:self.num_agents]
-        
+        self.num_agents = len(all_agents)
+        self.agents = all_agents        
         # Create simulation WITH HALF-LINE POLICY ✓
         self.sim = BaseSimulation(view=visualize)
         

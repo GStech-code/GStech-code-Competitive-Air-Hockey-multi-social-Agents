@@ -1,68 +1,177 @@
 # ============================================
-# CURRICULUM CONFIG FOR PPO TRAINING
+# UNIFIED PPO TRAINING CONFIG
+# Used by both train_ppo.py and train_ppo_curriculum.py
 # ============================================
 
+# Shared base configuration
 shared:
   n_steps: 2048
-  batch_size: 64
-  n_epochs: 10
+  batch_size: 128
+  n_epochs: 6
   gamma: 0.99
   gae_lambda: 0.95
   clip_range: 0.2
   clip_range_vf: 0.2
   vf_coef: 0.5
   max_grad_norm: 0.5
+  num_agents_team_a: 2
+  num_agents_team_b: 2
+  device: "cpu"
+  hidden_dim: 128
+  log_interval: 10
+  save_interval: 50
+  checkpoint_dir: "checkpoints"
+  log_dir: "logs"
 
-# Phase 1: Learn to approach puck
-phase_1:
-  name: "learn_hitting"
-  timesteps: 100000  # SHORTER - just learn basics
-  opponent_type: "static"
-  max_score: 100
-  max_steps: 600
+# ============================================
+# STANDARD TRAINING (for train_ppo.py)
+# Single phase, non-curriculum training
+# ============================================
+standard:
+  name: "standard_training"
+  total_timesteps: 1000000
+  opponent_type: "simple"
+  max_score: 3
+  max_steps: 1200
   learning_rate: 0.0003
-  ent_coef: 0.01  # START LOWER (was 0.02)
+  ent_coef: 0.01
   clip_range: 0.2
+  
+  rewards:
+    # Offensive rewards
+    goal_scored: 1000.0
+    goal_conceded: -1000.0
+    approach_puck: 5.0
+    proximity_to_puck: 20.0
+    contact_puck: 100.0
+    shoot_toward_goal: 200.0
+    
+    # Defensive rewards
+    defensive_position: 0.03
+    center_coverage: 0.02
+    
+    # Penalties
+    teammate_collision: 0.1
+    action_penalty: 0.0
+    unnecessary_movement: 0.0
 
-# Phase 2: Master shooting
-phase_2:
-  name: "learn_shooting"
-  timesteps: 400000  # DOUBLED from 200k - this is where learning happens!
+# ============================================
+# CURRICULUM PHASES (for train_ppo_curriculum.py)
+# Progressive learning over multiple phases
+# ============================================
+
+# Phase 1: Master offense against static
+phase_1:
+  name: "master_offense"
+  timesteps: 600000
   opponent_type: "static"
   max_score: 3
   max_steps: 800
-  learning_rate: 0.0002
-  ent_coef: 0.005  # LOWER (was 0.01)
+  learning_rate: 0.0003
+  ent_coef: 0.01
   clip_range: 0.2
+  
+  rewards:
+    # Pure offense - no defense yet
+    goal_scored: 1000.0
+    goal_conceded: -1000.0
+    approach_puck: 5.0
+    proximity_to_puck: 20.0
+    contact_puck: 100.0
+    shoot_toward_goal: 200.0
+    
+    # No defense in Phase 1
+    defensive_position: 0.0
+    center_coverage: 0.0
+    
+    # No penalties yet
+    teammate_collision: 0.0
+    action_penalty: 0.0
+    unnecessary_movement: 0.0
 
-# Phase 3: Easy opponent transition
-phase_3:
-  name: "vs_random_opponent"
-  timesteps: 150000
-  opponent_type: "random"  # EASIER than "simple"!
+# Phase 2: Add random opponent, tiny defense hints
+phase_2:
+  name: "vs_random"
+  timesteps: 200000
+  opponent_type: "random"
   max_score: 3
-  max_steps: 1200
+  max_steps: 1000
   learning_rate: 0.0002
-  ent_coef: 0.002  # VERY LOW
+  ent_coef: 0.003
   clip_range: 0.2
+  
+  rewards:
+    # Keep offense strong
+    goal_scored: 1000.0
+    goal_conceded: -1000.0
+    approach_puck: 5.0
+    proximity_to_puck: 20.0
+    contact_puck: 100.0
+    shoot_toward_goal: 200.0
+    
+    # Introduce minimal defense (conditional on puck location)
+    defensive_position: 0.03
+    center_coverage: 0.02
+    
+    # Small collision penalty
+    teammate_collision: 0.1
+    action_penalty: 0.0
+    unnecessary_movement: 0.0
 
+# Phase 3: Longer games, more defense
+phase_3:
+  name: "extended_random"
+  timesteps: 150000
+  opponent_type: "random"
+  max_score: 5
+  max_steps: 1500
+  learning_rate: 0.0001
+  ent_coef: 0.002
+  clip_range: 0.2
+  
+  rewards:
+    # Offense still dominant
+    goal_scored: 1000.0
+    goal_conceded: -1000.0
+    approach_puck: 5.0
+    proximity_to_puck: 20.0
+    contact_puck: 100.0
+    shoot_toward_goal: 200.0
+    
+    # Slightly more defense
+    defensive_position: 0.05
+    center_coverage: 0.03
+    
+    # More collision penalty
+    teammate_collision: 0.15
+    action_penalty: 0.0
+    unnecessary_movement: 0.0
 
-# PHASE 4: Simple AI with Defense
+# Phase 4: Simple AI with balanced defense
 phase_4:
-  name: "vs_simple_ai_defense"
+  name: "vs_simple_ai"
   timesteps: 200000
   opponent_type: "simple"
   max_score: 5
   max_steps: 1500
-  learning_rate: 0.0001
+  learning_rate: 0.00005
   ent_coef: 0.001
   clip_range: 0.15
+  
   rewards:
-    approach_puck_in_half: 0.0
-    close_to_puck: 0.0
-    puck_velocity_toward_goal: 2.0      # Keep shooting priority HIGH
-    defensive_position: 0.15            # SMALL defensive incentive ✓
-    center_coverage: 0.10               # Encourage covering goal center
-    action_penalty: 0.0001              # Tiny energy efficiency
-    unnecessary_movement: 0.003         # Discourage wandering
-    teammate_collision: 0.3             # Avoid bumping teammates
+    # Offense remains most important
+    goal_scored: 1000.0
+    goal_conceded: -1000.0
+    approach_puck: 5.0
+    proximity_to_puck: 20.0
+    contact_puck: 100.0
+    shoot_toward_goal: 200.0
+    
+    # Meaningful defense (but conditional - only ~50% of time)
+    defensive_position: 0.08
+    center_coverage: 0.05
+    
+    # Full penalties
+    teammate_collision: 0.2
+    action_penalty: 0.0
+    unnecessary_movement: 0.0

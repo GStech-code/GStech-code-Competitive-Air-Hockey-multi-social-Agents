@@ -106,8 +106,14 @@ class AirHockeyEnv:
         self.engine.reset(self.num_team_a, self.num_team_b)
         return self._get_obs()
     
-    def step(self, actions: np.ndarray) -> Tuple[np.ndarray, np.ndarray, np.ndarray, Dict]:
-        """Step environment"""
+    def step(self, actions: np.ndarray, reward_weights: Dict = None) -> Tuple:
+        """
+        Step the environment.
+        
+        Args:
+            actions: Action array [num_agents, 2]
+            reward_weights: Optional reward weights from curriculum config
+        """
         # Store previous state
         prev_state = self.engine.get_world_state()
         
@@ -126,7 +132,8 @@ class AirHockeyEnv:
         new_state = self.engine.get_world_state()
         
         # Compute rewards
-        rewards = self._compute_rewards(prev_state, new_state, actions)
+        rewards = self._compute_rewards(prev_state, new_state, actions, 
+                                        reward_weights=reward_weights)
         
         # Check done
         done = self._check_done(new_state)
@@ -200,29 +207,60 @@ class AirHockeyEnv:
         
         return obs
     
-    def _compute_rewards(self, prev_state: Dict, new_state: Dict, actions: np.ndarray) -> np.ndarray:
+    def _compute_rewards(self, prev_state: Dict, new_state: Dict, actions: np.ndarray,
+                        reward_weights: Dict = None) -> np.ndarray:  # ← ADD THIS PARAMETER
         """
-        PURE OFFENSIVE REWARDS
-        Focus: Chase puck, hit puck, shoot puck, score goals
+        Compute rewards using configurable weights.
+        
+        Args:
+            prev_state: Previous world state
+            new_state: Current world state
+            actions: Agent actions
+            reward_weights: Dictionary of reward weights from config (optional)
+        
+        Returns:
+            Reward array for each agent
         """
+        # Default weights if none provided (for backward compatibility)
+        if reward_weights is None:
+            reward_weights = {
+                'goal_scored': 1000.0,
+                'goal_conceded': -1000.0,
+                'approach_puck': 5.0,
+                'proximity_to_puck': 20.0,
+                'contact_puck': 100.0,
+                'shoot_toward_goal': 200.0,
+                'defensive_position': 0.0,
+                'center_coverage': 0.0,
+                'teammate_collision': 0.0,
+                'action_penalty': 0.0,
+                'unnecessary_movement': 0.0,
+            }
+        
         rewards = np.zeros(self.num_team_a, dtype=np.float32)
         
         # === 1. GOAL REWARDS ===
-        goal_reward = 0.0
         if new_state['team_a_score'] > prev_state['team_a_score']:
-            goal_reward = 1000.0  # SCORE!
+            rewards += reward_weights.get('goal_scored', 1000.0)
         if new_state['team_b_score'] > prev_state['team_b_score']:
-            goal_reward = -1000.0  # Got scored on (natural defensive pressure)
-        rewards += goal_reward
+            rewards += reward_weights.get('goal_conceded', -1000.0)
         
         # Get positions
         puck_x = new_state['puck_x']
         puck_y = new_state['puck_y']
         prev_puck_x = prev_state['puck_x']
         prev_puck_y = prev_state['puck_y']
-        hit_distance = self.engine.paddle_radius + self.engine.puck_radius + 15
+        half_line = self.engine.width / 2.0
+        goal_center_y = self.engine.height / 2.0
+        paddle_radius = self.engine.paddle_radius
+        puck_radius = self.engine.puck_radius
+        hit_distance = paddle_radius + puck_radius + 15
         
-        # === 2. APPROACH REWARDS (offensive) ===
+        # Check if puck in defensive zone (for conditional rewards)
+        puck_in_defensive_zone = (puck_x < half_line)
+        
+        # === 2. APPROACH REWARDS ===
+        w_approach = reward_weights.get('approach_puck', 5.0)
         for i in range(self.num_team_a):
             agent_x = new_state['agent_x'][i]
             agent_y = new_state['agent_y'][i]
@@ -232,23 +270,23 @@ class AirHockeyEnv:
             dist_to_puck = np.hypot(agent_x - puck_x, agent_y - puck_y)
             prev_dist_to_puck = np.hypot(prev_agent_x - prev_puck_x, prev_agent_y - prev_puck_y)
             
-            # Moving toward puck
-            distance_improvement = prev_dist_to_puck - dist_to_puck
-            if distance_improvement > 0:
-                approach_reward = 5.0 * np.tanh(distance_improvement / 20.0)
-                rewards[i] += approach_reward
+            # Approach reward
+            if w_approach > 0:
+                distance_improvement = prev_dist_to_puck - dist_to_puck
+                if distance_improvement > 0:
+                    approach_reward = w_approach * np.tanh(distance_improvement / 20.0)
+                    rewards[i] += approach_reward
             
-            # === 3. PUSH REWARD (get close to hit) ===
-            if dist_to_puck < hit_distance * 2.0:
+            # === 3. PROXIMITY REWARD ===
+            w_proximity = reward_weights.get('proximity_to_puck', 20.0)
+            if w_proximity > 0 and dist_to_puck < hit_distance * 2.0:
                 if dist_to_puck < hit_distance:
-                    # Very close - strong push
                     push_factor = (hit_distance - dist_to_puck) / hit_distance
-                    push_reward = 20.0 * push_factor
+                    push_reward = w_proximity * push_factor
                     rewards[i] += push_reward
                 else:
-                    # Getting closer
                     range_factor = (hit_distance * 2.0 - dist_to_puck) / hit_distance
-                    approach_bonus = 5.0 * range_factor
+                    approach_bonus = (w_proximity * 0.25) * range_factor
                     rewards[i] += approach_bonus
         
         # === 4. CONTACT DETECTION ===
@@ -260,6 +298,9 @@ class AirHockeyEnv:
         delta_puck_vx = new_puck_vx - prev_puck_vx
         delta_puck_vy = new_puck_vy - prev_puck_vy
         puck_vel_change = np.hypot(delta_puck_vx, delta_puck_vy)
+        
+        w_contact = reward_weights.get('contact_puck', 100.0)
+        w_shooting = reward_weights.get('shoot_toward_goal', 200.0)
         
         if puck_vel_change > 0.3:
             best_agent = None
@@ -290,14 +331,74 @@ class AirHockeyEnv:
                             best_alignment = alignment
                             best_agent = i
             
-            # === 5. CONTACT REWARD (aggressive hitting) ===
-            if best_agent is not None and best_alignment > 0.2:
-                rewards[best_agent] += 100.0  # BIG reward for hitting
+            # === 5. CONTACT REWARD ===
+            if best_agent is not None and best_alignment > 0.2 and w_contact > 0:
+                rewards[best_agent] += w_contact
                 
-                # === 6. SHOOTING REWARD (score-focused) ===
-                if new_puck_vx > 0:  # Moving toward opponent goal
+                # === 6. SHOOTING REWARD ===
+                if new_puck_vx > 0 and w_shooting > 0:  # Moving toward opponent goal
                     shot_power = min(new_puck_vx / self.engine.puck_max_speed, 1.0)
-                    rewards[best_agent] += 200.0 * shot_power  # HUGE reward for shooting
+                    rewards[best_agent] += w_shooting * shot_power
+        
+        # === 7. DEFENSIVE REWARDS (conditional on puck location) ===
+        w_defense = reward_weights.get('defensive_position', 0.0)
+        w_coverage = reward_weights.get('center_coverage', 0.0)
+        
+        if puck_in_defensive_zone and (w_defense > 0 or w_coverage > 0):
+            for i in range(self.num_team_a):
+                agent_x = new_state['agent_x'][i]
+                agent_y = new_state['agent_y'][i]
+                
+                # Defensive positioning
+                if w_defense > 0 and agent_x < puck_x:  # Between puck and own goal
+                    ideal_x = puck_x * 0.3
+                    ideal_y = puck_y
+                    dist_from_ideal = np.hypot(agent_x - ideal_x, agent_y - ideal_y)
+                    max_dist = 100.0
+                    defensive_quality = max(0, 1.0 - (dist_from_ideal / max_dist))
+                    rewards[i] += w_defense * defensive_quality
+                
+                # Center coverage
+                if w_coverage > 0 and agent_x < half_line * 0.6:  # In defensive third
+                    dist_from_goal_center = abs(agent_y - goal_center_y)
+                    max_coverage_dist = self.engine.height / 3.0
+                    coverage_quality = max(0, 1.0 - (dist_from_goal_center / max_coverage_dist))
+                    rewards[i] += w_coverage * coverage_quality
+        
+        # === 8. PENALTIES ===
+        w_collision = reward_weights.get('teammate_collision', 0.0)
+        w_action = reward_weights.get('action_penalty', 0.0)
+        w_unnecessary = reward_weights.get('unnecessary_movement', 0.0)
+        
+        for i in range(self.num_team_a):
+            agent_x = new_state['agent_x'][i]
+            agent_y = new_state['agent_y'][i]
+            prev_agent_x = prev_state['agent_x'][i]
+            prev_agent_y = prev_state['agent_y'][i]
+            
+            # Teammate collision
+            if w_collision > 0:
+                for j in range(i + 1, self.num_team_a):
+                    teammate_x = new_state['agent_x'][j]
+                    teammate_y = new_state['agent_y'][j]
+                    dist_to_teammate = np.hypot(agent_x - teammate_x, agent_y - teammate_y)
+                    collision_threshold = paddle_radius * 2 + 10
+                    if dist_to_teammate < collision_threshold:
+                        collision_penalty = w_collision * (1.0 - dist_to_teammate / collision_threshold)
+                        rewards[i] -= collision_penalty
+                        rewards[j] -= collision_penalty
+            
+            # Action penalty
+            if w_action > 0:
+                action_magnitude = np.linalg.norm(actions[i])
+                rewards[i] -= w_action * action_magnitude
+            
+            # Unnecessary movement
+            if w_unnecessary > 0:
+                dist_to_puck = np.hypot(agent_x - puck_x, agent_y - puck_y)
+                movement = np.hypot(agent_x - prev_agent_x, agent_y - prev_agent_y)
+                if dist_to_puck > 100 and not puck_in_defensive_zone:
+                    rewards[i] -= w_unnecessary * movement
         
         return rewards
     
@@ -390,10 +491,22 @@ class PPOTrainer:
     def __init__(self, config: PPOConfig, scenario_params: Dict):
         self.config = config
         self.device = torch.device(config.device)
+
+        # Store reward weights (from config)
+        self.reward_weights = getattr(config, 'reward_weights', None)
         
+        # Store opponent type
+        self.opponent_type = getattr(config, 'opponent_type', 'static')
+
         # Create environment
         self.env = AirHockeyEnv(config, scenario_params)
         
+        # Update env settings from config
+        if hasattr(config, 'max_score'):
+            self.env.max_score = config.max_score
+        if hasattr(config, 'max_steps'):
+            self.env.max_steps = config.max_steps
+
         # Create actor-critic network
         self.agent = ActorCritic(config, self.env).to(self.device)
         self.optimizer = optim.Adam(self.agent.parameters(), lr=config.learning_rate)
@@ -431,6 +544,12 @@ class PPOTrainer:
     def collect_rollouts(self) -> Dict:
         """Collect rollouts"""
         self.reset_rollout_buffer()
+        # DEBUG: Print to verify rewards come from config
+        print(f"\n🔍 Phase: {self.current_phase.name}")
+        print(f"🔍 Reward weights being used:")
+        for key, value in self.current_phase.rewards.items():
+            print(f"   {key}: {value}")
+        print()
         obs = self.env.reset()
         
         episode_rewards = []
@@ -440,7 +559,7 @@ class PPOTrainer:
         
         current_episode_reward = 0
         current_episode_length = 0
-        start_scores = self.env.engine.get_world_state()
+        prev_scores = {'team_a_score': 0, 'team_b_score': 0}
         
         for step in range(self.config.n_steps):
             obs_tensor = torch.FloatTensor(obs).to(self.device)
@@ -448,7 +567,11 @@ class PPOTrainer:
             with torch.no_grad():
                 action, logprob, _, value = self.agent.get_action_and_value(obs_tensor)
             
-            next_obs, reward, done, info = self.env.step(action.cpu().numpy())
+            # Step environment with reward weights
+            next_obs, reward, done, info = self.env.step(
+                action.cpu().numpy(),
+                reward_weights=self.reward_weights  # ← Pass weights from config
+            )
             
             # Store transition
             self.obs_buffer.append(obs)
@@ -462,8 +585,8 @@ class PPOTrainer:
             current_episode_length += 1
             
             if done.any():
-                goals_for = info['scores']['team_a_score'] - start_scores['team_a_score']
-                goals_against = info['scores']['team_b_score'] - start_scores['team_b_score']
+                goals_for = info['scores']['team_a_score'] - prev_scores['team_a_score']
+                goals_against = info['scores']['team_b_score'] - prev_scores['team_b_score']
                 
                 episode_rewards.append(current_episode_reward)
                 episode_lengths.append(current_episode_length)
@@ -472,19 +595,22 @@ class PPOTrainer:
                 
                 current_episode_reward = 0
                 current_episode_length = 0
+                prev_scores = {'team_a_score': 0, 'team_b_score': 0}
                 obs = self.env.reset()
-                start_scores = self.env.engine.get_world_state()
             else:
                 obs = next_obs
+                if info['scores']['team_a_score'] > prev_scores['team_a_score']:
+                    prev_scores['team_a_score'] = info['scores']['team_a_score']
+                if info['scores']['team_b_score'] > prev_scores['team_b_score']:
+                    prev_scores['team_b_score'] = info['scores']['team_b_score']
         
         self._compute_gae()
         
         return {
             'episode_rewards': episode_rewards,
             'episode_lengths': episode_lengths,
-            'episode_goals_for': episode_goals_for,
-            'episode_goals_against': episode_goals_against,
-            'num_episodes_completed': len(episode_rewards),
+            'episode_goals_for': episode_goals_for if episode_goals_for else [0],
+            'episode_goals_against': episode_goals_against if episode_goals_against else [0],
             'mean_value': np.mean([v.mean() for v in self.value_buffer])
         }
     
@@ -664,14 +790,57 @@ class PPOTrainer:
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--config', type=str, default='config/ppo_config.yaml')
+    parser.add_argument('--config', type=str, default='config/ppo_curriculum.yaml')
     parser.add_argument('--checkpoint', type=str, default=None)
+    parser.add_argument('--mode', type=str, default='standard', 
+                       help='Training mode: standard, phase_1, phase_2, etc.')
     args = parser.parse_args()
     
-    # Load config
+    # Load unified config
     with open(args.config, 'r') as f:
-        config_dict = yaml.safe_load(f)
+        full_config = yaml.safe_load(f)
+    
+    # Get shared config (base values)
+    shared = full_config.get('shared', {})
+    
+    # Get mode-specific config
+    if args.mode not in full_config:
+        print(f"Warning: Mode '{args.mode}' not found in config, using 'standard'")
+        args.mode = 'standard'
+    
+    mode_config = full_config.get(args.mode, {})
+    
+    # Merge: start with shared, override with mode-specific
+    config_dict = {**shared}
+    
+    # Map mode_config keys to PPOConfig keys
+    key_mapping = {
+        'timesteps': 'total_timesteps',  # Curriculum phases use 'timesteps'
+        'total_timesteps': 'total_timesteps',  # Standard uses 'total_timesteps'
+    }
+    
+    # Update config_dict with mode-specific values
+    for mode_key, mode_value in mode_config.items():
+        # Map the key if needed
+        config_key = key_mapping.get(mode_key, mode_key)
+        
+        # Only override if it's a PPOConfig parameter
+        if config_key in ['total_timesteps', 'learning_rate', 'ent_coef', 
+                          'clip_range', 'batch_size', 'n_epochs', 'n_steps',
+                          'gamma', 'gae_lambda', 'clip_range_vf', 'vf_coef',
+                          'max_grad_norm', 'num_agents_team_a', 'num_agents_team_b',
+                          'device', 'hidden_dim', 'log_interval', 'save_interval',
+                          'checkpoint_dir', 'log_dir']:
+            config_dict[config_key] = mode_value
+    
+    # Create config object
     config = PPOConfig(**config_dict)
+    
+    # Store additional training params (not in PPOConfig dataclass)
+    config.max_score = mode_config.get('max_score', 3)
+    config.max_steps = mode_config.get('max_steps', 1200)
+    config.opponent_type = mode_config.get('opponent_type', 'static')
+    config.reward_weights = mode_config.get('rewards', {})
     
     # Scenario parameters
     scenario_params = {
@@ -690,14 +859,27 @@ def main():
     
     # Load checkpoint if provided
     if args.checkpoint:
-        checkpoint = torch.load(args.checkpoint, map_location=trainer.device)
+        checkpoint = torch.load(args.checkpoint, map_location=trainer.device, 
+                              weights_only=False)
         trainer.agent.load_state_dict(checkpoint['model_state_dict'])
         trainer.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-        print(f"Loaded checkpoint: {args.checkpoint}")
+        print(f"✓ Loaded checkpoint: {args.checkpoint}")
     
-    # Train
+    # Print configuration for verification
+    print(f"\n{'='*60}")
+    print(f"TRAINING CONFIGURATION")
+    print(f"{'='*60}")
+    print(f"Mode: {args.mode}")
+    print(f"Opponent: {config.opponent_type}")
+    print(f"Total timesteps: {config.total_timesteps:,}")
+    print(f"Learning rate: {config.learning_rate}")
+    print(f"Entropy coef: {config.ent_coef}")
+    print(f"Clip range: {config.clip_range}")
+    print(f"Max score: {config.max_score}")
+    print(f"Max steps: {config.max_steps}")
+    print(f"{'='*60}\n")
+    
     trainer.train()
-
 
 if __name__ == "__main__":
     main()

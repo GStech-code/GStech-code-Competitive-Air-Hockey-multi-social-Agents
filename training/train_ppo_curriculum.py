@@ -21,6 +21,7 @@ from pathlib import Path
 import sys
 import numpy as np
 from collections import deque
+from typing import Dict
 
 # Fix import paths
 current_file = Path(__file__).resolve()
@@ -446,7 +447,7 @@ class CurriculumPPOTrainer(PPOTrainer):
             self.phase_rollout_count += 1
             
             # Collect experience
-            rollout_info = self.collect_rollouts_with_opponent(
+            rollout_info = self.collect_rollouts(
                 self.current_phase.opponent_type
             )
             
@@ -501,19 +502,20 @@ class CurriculumPPOTrainer(PPOTrainer):
                 ckpt_name = f"{self.current_phase.name}_rollout_{self.phase_rollout_count}"
                 self.save_checkpoint_named(ckpt_name)
     
-    def collect_rollouts_with_opponent(self, opponent_type: str):
-        """Collect rollouts against specified opponent type"""
-        self.reset_rollout_buffer()
+    def collect_rollouts(self, opponent_type: str) -> Dict:
+        """Collect rollouts"""
+        # MUST RESET BUFFERS FIRST!
+        self.reset_rollout_buffer()  # ← ADD THIS!
+        
         obs = self.env.reset()
+        
         episode_rewards = []
         episode_lengths = []
         episode_goals_for = []
         episode_goals_against = []
+        
         current_episode_reward = 0
         current_episode_length = 0
-        
-        self.prev_actions = np.zeros((self.config.num_agents_team_a, 2), dtype=np.float32)
-        
         prev_scores = {'team_a_score': 0, 'team_b_score': 0}
         
         for step in range(self.config.n_steps):
@@ -523,43 +525,27 @@ class CurriculumPPOTrainer(PPOTrainer):
                 action, logprob, _, value = self.agent.get_action_and_value(obs_tensor)
             
             world_state_before = self.env.engine.get_world_state()
-            
-            # Generate opponent actions
             opponent_actions = self._generate_opponent_actions(opponent_type, world_state_before)
             
-            # Combine actions (handle case with no opponents)
             team_a_actions = action.cpu().numpy()
-            if opponent_actions.shape[0] > 0:
-                all_actions = np.vstack([team_a_actions, opponent_actions])
-            else:
-                all_actions = team_a_actions
+            all_actions = np.vstack([team_a_actions, opponent_actions])
             
-            # Step environment
-            next_obs, base_reward, done, info = self.env.step(all_actions)
-            
-            world_state_after = self.env.engine.get_world_state()
-            
-            # Apply curriculum-specific reward shaping
-            shaped_reward = self._compute_curriculum_reward(
-                world_state_before,
-                world_state_after,
-                team_a_actions,
-                self.prev_actions,
-                base_reward,
-                self.current_phase.rewards
+            # Step environment WITH PHASE WEIGHTS
+            next_obs, reward, done, info = self.env.step(
+                all_actions, 
+                reward_weights=self.current_phase.rewards
             )
             
             # Store transition
             self.obs_buffer.append(obs)
             self.action_buffer.append(action.cpu().numpy())
-            self.reward_buffer.append(shaped_reward)
+            self.reward_buffer.append(reward)
             self.value_buffer.append(value.cpu().numpy())
             self.logprob_buffer.append(logprob.cpu().numpy())
             self.done_buffer.append(done)
             
-            current_episode_reward += shaped_reward.sum()
+            current_episode_reward += reward.sum()
             current_episode_length += 1
-            
             self.prev_actions = team_a_actions.copy()
             
             if done.any():
@@ -650,17 +636,75 @@ class CurriculumPPOTrainer(PPOTrainer):
         else:
             return np.zeros((num_opponents, 2), dtype=np.float32)
     
-    def _compute_curriculum_reward(self, world_state_before: dict, world_state_after: dict,
-                                   actions: np.ndarray, prev_actions: np.ndarray,
-                                   base_reward: np.ndarray, phase_rewards: dict) -> np.ndarray:
-        """Apply curriculum-specific reward shaping"""
-        # Start with base reward (includes goal, approach, proximity, contact, shooting)
-        rewards = base_reward.copy()
-        
-        # Phase-specific additional rewards (if any)
-        # These are minimal since base rewards are already good
-        
-        return rewards
+#    def _compute_curriculum_reward(self, world_state_before: dict, world_state_after: dict,
+#                                actions: np.ndarray, prev_actions: np.ndarray,
+#                                base_reward: np.ndarray, phase_rewards: dict) -> np.ndarray:
+#        """
+#        Apply curriculum-specific reward shaping.
+#        
+#        BASE REWARDS HANDLE: Goals, approach, proximity, contact, shooting
+#        CURRICULUM ADDS: Only defensive positioning (conditional on puck location)
+#        """
+#        rewards = base_reward.copy()
+#        
+#        # Get defensive weights (only these should be non-zero!)
+#        w_defense = phase_rewards.get('defensive_position', 0.0)
+#        w_coverage = phase_rewards.get('center_coverage', 0.0)
+#        w_collision = phase_rewards.get('teammate_collision', 0.0)
+#        
+#        # Skip if no defensive rewards
+#        if w_defense == 0.0 and w_coverage == 0.0 and w_collision == 0.0:
+#            return rewards
+#        
+#        # Get world state
+#        puck_x = world_state_after['puck_x']
+#        puck_y = world_state_after['puck_y']
+#        half_line = self.env.engine.width / 2.0
+#        goal_center_y = self.env.engine.height / 2.0
+#        paddle_radius = self.env.engine.paddle_radius
+#        
+#        # ONLY apply when puck in defensive zone
+#        puck_in_defensive_zone = (puck_x < half_line)
+#        
+#        if not puck_in_defensive_zone:
+#            return rewards  # No curriculum rewards when attacking
+#        
+#        # === DEFENSIVE REWARDS (only when puck in own half) ===
+#        for i in range(self.config.num_agents_team_a):
+#            agent_x = world_state_after['agent_x'][i]
+#            agent_y = world_state_after['agent_y'][i]
+#            
+#            # 1. DEFENSIVE POSITION
+#            if w_defense > 0:
+#                if agent_x < puck_x:  # Between puck and own goal
+#                    ideal_x = puck_x * 0.3
+#                    ideal_y = puck_y
+#                    dist_from_ideal = np.hypot(agent_x - ideal_x, agent_y - ideal_y)
+#                    max_dist = 100.0
+#                    defensive_quality = max(0, 1.0 - (dist_from_ideal / max_dist))
+#                    rewards[i] += w_defense * defensive_quality
+#            
+#            # 2. CENTER COVERAGE
+#            if w_coverage > 0:
+#                dist_from_goal_center = abs(agent_y - goal_center_y)
+#                max_coverage_dist = self.env.engine.height / 3.0
+#                if agent_x < half_line * 0.6:  # In defensive third
+#                    coverage_quality = max(0, 1.0 - (dist_from_goal_center / max_coverage_dist))
+#                    rewards[i] += w_coverage * coverage_quality
+#            
+#            # 3. TEAMMATE COLLISION PENALTY
+#            if w_collision > 0:
+#                for j in range(i + 1, self.config.num_agents_team_a):
+#                    teammate_x = world_state_after['agent_x'][j]
+#                    teammate_y = world_state_after['agent_y'][j]
+#                    dist_to_teammate = np.hypot(agent_x - teammate_x, agent_y - teammate_y)
+#                    collision_threshold = paddle_radius * 2 + 10
+#                    if dist_to_teammate < collision_threshold:
+#                        collision_penalty = w_collision * (1.0 - dist_to_teammate / collision_threshold)
+#                        rewards[i] -= collision_penalty
+#                        rewards[j] -= collision_penalty
+#        
+#        return rewards
     
     def save_checkpoint_named(self, name: str):
         """Save named checkpoint"""
