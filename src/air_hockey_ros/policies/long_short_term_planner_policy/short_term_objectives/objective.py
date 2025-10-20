@@ -15,18 +15,22 @@ class Objective:
     def set_long_term_mode_func(self, func: Callable):
         self.long_term_mode = func
     def intro_step(self, ws: Dict):
-        self.commands.flush_limit(2)
+        pass
+        #self.commands.flush_limit(2)
         #frame = self.latest_frame.get()
 
     def new_ws_step(self, ws: Dict):
-        self.last_ws = ws
+        pass
+        #self.last_ws = ws
 
     def continue_step(self):
-        if self.commands.is_full():
-            return
+        pass
+        #if self.commands.is_full():
+        #    return
         #frame = self.latest_frame.get()
 
     def emergency_step(self, ws: Dict):
+        pass
         #frame = self.latest_frame.get()
-        self.commands.clear()
-        self.commands.push((0, 0))
+        #self.commands.clear()
+        #self.commands.push((0, 0))

@@ -1,10 +1,10 @@
 from enum import IntEnum
 from .defend_line import DefendLine
 from .intercept import Intercept
-from .pass_shot import Pass_Shot
+from .pass_shot import PassShot
 from .fast_shot import FastShot
 
-OBJECTIVES = [DefendLine, Intercept, Pass_Shot, FastShot]
+OBJECTIVES = [DefendLine, Intercept, PassShot, FastShot]
 
 
 class ObjectiveEnum(IntEnum):

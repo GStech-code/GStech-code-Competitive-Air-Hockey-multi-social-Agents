@@ -3,7 +3,7 @@ from typing import Dict
 from .objective import Objective
 import math
 
-class Pass_Shot(Objective):
+class PassShot(Objective):
     """
     M1: Pass
     Purpose: Feed the puck toward a teammate when safe and meaningful.

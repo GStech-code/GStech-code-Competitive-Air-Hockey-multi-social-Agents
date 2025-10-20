@@ -11,7 +11,7 @@ class FastShot(Objective):
     """
 
     def __init__(self, agent_id, teammate_ids, commands, rules: Dict, **params):
-        super().__init__(agent_id, commands, teammate_ids, rules, **params)
+        super().__init__(agent_id, teammate_ids, commands, rules, **params)
 
         # --- Environment ---
         width = rules.get("width", 800)

@@ -4,7 +4,7 @@ from .objective import Objective
 
 class DefendLine(Objective):
     def __init__(self, agent_id, teammate_ids, commands, rules: Dict, **params):
-        super().__init__(agent_id, commands, teammate_ids, rules, **params)
+        super().__init__(agent_id, teammate_ids, commands, rules, **params)
         self.paddle_radius = rules.get('paddle_radius', 20)
         self.y_center = rules.get('height', 600) / 2.0
         self.limit_x = rules.get('width', 800) - self.paddle_radius
@@ -14,7 +14,6 @@ class DefendLine(Objective):
         self.paddle_distance = self.paddle_radius * 2 + self.unit_speed_px
         self.puck_max_speed = rules.get('puck_max_speed', 6.0)
         self.puck_third_speed = self.puck_max_speed / 3.0
-        self.rows: List[Tuple[float, float]] = params['defense_rows']
         row = params.get('defense_row', rules.get('goal_offset', 40) + self.paddle_radius + self.unit_speed_px)
         half_unit = self.unit_speed_px / 2
         self.min_x_band = row - half_unit
@@ -86,6 +85,8 @@ class DefendLine(Objective):
         # --- X correction: move into band only if outside ---
         # --- Y correction ---
         self.correction()
+
+        self.teammate_consideration()
 
         # --- Build compact burst (≤2) ---
         self.burst_command()
