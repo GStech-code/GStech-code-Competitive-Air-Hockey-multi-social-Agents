@@ -27,23 +27,16 @@ class LSAgentPolicy(AgentPolicy):
         self._st: Optional[ShortTermPlanner] = None
         self._lt: Optional[LongTermPlanner] = None
         self._last_cmd: Command = (0, 0)
-        self.update_counter = 0
         self.params = params
 
     # --- lifecycle hooks for DI environment ---
     def on_agent_init(self):
         if self._mailbox is not None:
             return
-        self._mailbox = Mailbox(cmd_capacity=self.cmd_capacity,
-                                cmd_min_capacity=self.cmd_min_capacity)
+        self._mailbox = Mailbox()
         self._st = ShortTermPlanner(self.agent_id, self.teammate_ids, self._mailbox, **self.params)
         self._lt = LongTermPlanner(self._mailbox)
         self._scheduler = SpotlightScheduler(self._st, self._lt, st_budget_ms=self.st_min_period_ms)
-
-        long_term_mode_func = self._scheduler.get_long_term_mode_func()
-        self._st.set_long_term_mode_func(long_term_mode_func)
-        emergency_func = self._scheduler.get_emergency_func()
-        self._lt.set_emergency_func(emergency_func)
 
         self._scheduler.start()
         self._register_finalizers()
@@ -82,7 +75,8 @@ class LSAgentPolicy(AgentPolicy):
     @staticmethod
     def _finalize_static(self_ref):
         self = self_ref()
-        if not self: return
+        if not self:
+            return
         try:
             self._thread_shutdown()
             self._signal_shutdown()
@@ -98,17 +92,10 @@ class LSAgentPolicy(AgentPolicy):
             return self._last_cmd
 
         # publish latest frame (peeked by ST/LT)
-        self._mailbox.latest_frame.set((self.update_counter, world_state))
-        self.update_counter += 1
-        if self._scheduler.emergency_status:
-            return self._mailbox.commands.pop() or self._last_cmd
+        self._mailbox.latest_world_state.set(world_state)
         self._scheduler.trigger_st_cycle()
-
         # pop next command if available, otherwise last cmd
-        return self._mailbox.commands.pop() or self._last_cmd
-
-    def last_cmd(self) -> Command:
-        return self._last_cmd
+        return self._mailbox.command.get() or self._last_cmd
 
     # --- make pickling safe (threads are not pickled) ---
     def __getstate__(self):
