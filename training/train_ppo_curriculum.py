@@ -414,7 +414,7 @@ class CurriculumPPOTrainer(PPOTrainer):
         # === FIX 10: ENTROPY DECAY - Gradually reduce exploration ===
         # This prevents the policy from staying random forever
         old_ent_coef = self.config.ent_coef
-        decay_rate = 0.99  # ← CHANGE from 0.9995
+        decay_rate = 0.95  # ← CHANGE from 0.9995
         min_ent_coef = 0.001
         
         self.config.ent_coef = max(min_ent_coef, self.config.ent_coef * decay_rate)

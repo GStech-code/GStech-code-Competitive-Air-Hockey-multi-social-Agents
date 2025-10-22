@@ -207,8 +207,7 @@ class AirHockeyEnv:
         
         return obs
     
-    def _compute_rewards(self, prev_state: Dict, new_state: Dict, actions: np.ndarray,
-                        reward_weights: Dict = None) -> np.ndarray:  # ← ADD THIS PARAMETER
+    def _compute_rewards(self, prev_state, new_state, actions, reward_weights=None) -> np.ndarray:
         """
         Compute rewards using configurable weights.
         
@@ -226,15 +225,17 @@ class AirHockeyEnv:
             reward_weights = {
                 'goal_scored': 1000.0,
                 'goal_conceded': -1000.0,
-                'approach_puck': 5.0,
-                'proximity_to_puck': 20.0,
-                'contact_puck': 100.0,
-                'shoot_toward_goal': 200.0,
+                'approach_puck': 10.0,
+                'proximity_to_puck': 30.0,
+                'contact_puck': 150.0,
+                'shoot_toward_goal': 250.0,
+                'field_coverage': 0.0,
                 'defensive_position': 0.0,
+                'transition_speed': 0.0,
                 'center_coverage': 0.0,
-                'teammate_collision': 0.0,
-                'action_penalty': 0.0,
-                'unnecessary_movement': 0.0,
+                'teammate_collision': -5.0,
+                'action_penalty': -0.001,
+                'unnecessary_movement': -0.01,
             }
         
         rewards = np.zeros(self.num_team_a, dtype=np.float32)
@@ -259,8 +260,7 @@ class AirHockeyEnv:
         # Check if puck in defensive zone (for conditional rewards)
         puck_in_defensive_zone = (puck_x < half_line)
         
-        # === 2. APPROACH REWARDS ===
-        w_approach = reward_weights.get('approach_puck', 5.0)
+        w_approach = reward_weights.get('approach_puck', 10.0)
         for i in range(self.num_team_a):
             agent_x = new_state['agent_x'][i]
             agent_y = new_state['agent_y'][i]
@@ -270,24 +270,16 @@ class AirHockeyEnv:
             dist_to_puck = np.hypot(agent_x - puck_x, agent_y - puck_y)
             prev_dist_to_puck = np.hypot(prev_agent_x - prev_puck_x, prev_agent_y - prev_puck_y)
             
-            # Approach reward
+            # ALWAYS reward getting closer to puck
             if w_approach > 0:
                 distance_improvement = prev_dist_to_puck - dist_to_puck
-                if distance_improvement > 0:
-                    approach_reward = w_approach * np.tanh(distance_improvement / 20.0)
-                    rewards[i] += approach_reward
+                rewards[i] += w_approach * np.clip(distance_improvement / 10.0, -1, 1)
             
-            # === 3. PROXIMITY REWARD ===
-            w_proximity = reward_weights.get('proximity_to_puck', 20.0)
-            if w_proximity > 0 and dist_to_puck < hit_distance * 2.0:
-                if dist_to_puck < hit_distance:
-                    push_factor = (hit_distance - dist_to_puck) / hit_distance
-                    push_reward = w_proximity * push_factor
-                    rewards[i] += push_reward
-                else:
-                    range_factor = (hit_distance * 2.0 - dist_to_puck) / hit_distance
-                    approach_bonus = (w_proximity * 0.25) * range_factor
-                    rewards[i] += approach_bonus
+            # === PROXIMITY BONUS (always active) ===
+            w_proximity = reward_weights.get('proximity_to_puck', 30.0)
+            if w_proximity > 0 and dist_to_puck < 100:  # Within striking range
+                proximity_bonus = w_proximity * (1.0 - dist_to_puck / 100.0)
+                rewards[i] += proximity_bonus
         
         # === 4. CONTACT DETECTION ===
         new_puck_vx = new_state['puck_vx']
@@ -302,7 +294,7 @@ class AirHockeyEnv:
         w_contact = reward_weights.get('contact_puck', 100.0)
         w_shooting = reward_weights.get('shoot_toward_goal', 200.0)
         
-        if puck_vel_change > 0.3:
+        if puck_vel_change > 0.1:
             best_agent = None
             best_alignment = -1.0
             
@@ -340,65 +332,49 @@ class AirHockeyEnv:
                     shot_power = min(new_puck_vx / self.engine.puck_max_speed, 1.0)
                     rewards[best_agent] += w_shooting * shot_power
         
-        # === 7. DEFENSIVE REWARDS (conditional on puck location) ===
-        w_defense = reward_weights.get('defensive_position', 0.0)
-        w_coverage = reward_weights.get('center_coverage', 0.0)
-        
-        if puck_in_defensive_zone and (w_defense > 0 or w_coverage > 0):
+        # === FIELD COVERAGE (only if weight > 0) ===
+        w_field = reward_weights.get('field_coverage', 0.0)
+        if w_field > 0:
             for i in range(self.num_team_a):
                 agent_x = new_state['agent_x'][i]
-                agent_y = new_state['agent_y'][i]
                 
-                # Defensive positioning
-                if w_defense > 0 and agent_x < puck_x:  # Between puck and own goal
-                    ideal_x = puck_x * 0.3
-                    ideal_y = puck_y
-                    dist_from_ideal = np.hypot(agent_x - ideal_x, agent_y - ideal_y)
-                    max_dist = 100.0
-                    defensive_quality = max(0, 1.0 - (dist_from_ideal / max_dist))
-                    rewards[i] += w_defense * defensive_quality
+                # Simple positioning reward
+                if puck_x < half_line:  # Defensive
+                    ideal_x = puck_x * 0.5
+                else:  # Offensive support
+                    ideal_x = min(puck_x - 50, half_line * 0.8)
                 
-                # Center coverage
-                if w_coverage > 0 and agent_x < half_line * 0.6:  # In defensive third
-                    dist_from_goal_center = abs(agent_y - goal_center_y)
-                    max_coverage_dist = self.engine.height / 3.0
-                    coverage_quality = max(0, 1.0 - (dist_from_goal_center / max_coverage_dist))
-                    rewards[i] += w_coverage * coverage_quality
+                position_quality = 1.0 - min(abs(agent_x - ideal_x) / 100.0, 1.0)
+                rewards[i] += w_field * position_quality
         
-        # === 8. PENALTIES ===
-        w_collision = reward_weights.get('teammate_collision', 0.0)
-        w_action = reward_weights.get('action_penalty', 0.0)
-        w_unnecessary = reward_weights.get('unnecessary_movement', 0.0)
-        
+        # === PENALTIES (should be negative!) ===
+        #Penalize agents that hover without hitting the puck
+        if not hasattr(self, 'steps_near_puck'):
+            self.steps_near_puck = [0] * self.num_team_a
+
         for i in range(self.num_team_a):
-            agent_x = new_state['agent_x'][i]
-            agent_y = new_state['agent_y'][i]
-            prev_agent_x = prev_state['agent_x'][i]
-            prev_agent_y = prev_state['agent_y'][i]
+            dist_to_puck = np.hypot(agent_x - puck_x, agent_y - puck_y)
             
-            # Teammate collision
-            if w_collision > 0:
+            if dist_to_puck < hit_distance:
+                self.steps_near_puck[i] += 1
+                
+                # If near puck for too long without hitting
+                if self.steps_near_puck[i] > 10 and puck_vel_change < 0.1:
+                    rewards[i] -= 5.0  # Penalty for hovering
+            else:
+                self.steps_near_puck[i] = 0
+
+        w_collision = reward_weights.get('teammate_collision', -5.0)
+        if w_collision < 0:  # Note: checking if negative
+            for i in range(self.num_team_a):
                 for j in range(i + 1, self.num_team_a):
-                    teammate_x = new_state['agent_x'][j]
-                    teammate_y = new_state['agent_y'][j]
-                    dist_to_teammate = np.hypot(agent_x - teammate_x, agent_y - teammate_y)
-                    collision_threshold = paddle_radius * 2 + 10
-                    if dist_to_teammate < collision_threshold:
-                        collision_penalty = w_collision * (1.0 - dist_to_teammate / collision_threshold)
-                        rewards[i] -= collision_penalty
-                        rewards[j] -= collision_penalty
-            
-            # Action penalty
-            if w_action > 0:
-                action_magnitude = np.linalg.norm(actions[i])
-                rewards[i] -= w_action * action_magnitude
-            
-            # Unnecessary movement
-            if w_unnecessary > 0:
-                dist_to_puck = np.hypot(agent_x - puck_x, agent_y - puck_y)
-                movement = np.hypot(agent_x - prev_agent_x, agent_y - prev_agent_y)
-                if dist_to_puck > 100 and not puck_in_defensive_zone:
-                    rewards[i] -= w_unnecessary * movement
+                    dist = np.hypot(
+                        new_state['agent_x'][i] - new_state['agent_x'][j],
+                        new_state['agent_y'][i] - new_state['agent_y'][j]
+                    )
+                    if dist < paddle_radius * 2.5:
+                        rewards[i] += w_collision * (1.0 - dist / (paddle_radius * 2.5))
+                        rewards[j] += w_collision * (1.0 - dist / (paddle_radius * 2.5))
         
         return rewards
     
@@ -414,7 +390,7 @@ class AirHockeyEnv:
 
 
 class ActorCritic(nn.Module):
-    """Actor-Critic network for PPO"""
+    """Actor-Critic network for PPO with auxiliary objectives"""
     
     def __init__(self, config: PPOConfig, env: AirHockeyEnv):
         super().__init__()
@@ -446,8 +422,46 @@ class ActorCritic(nn.Module):
             nn.Linear(hidden // 2, 1),
         )
         
+        # === AUXILIARY HEADS ===
+        # 1. Position predictor - helps learn spatial awareness
+        self.position_predictor = nn.Sequential(
+            nn.Linear(hidden, hidden // 2),
+            nn.ReLU(),
+            nn.Linear(hidden // 2, 2)  # Predict normalized x, y position
+        )
+        
+        # 2. Puck trajectory predictor - helps learn defensive anticipation
+        self.puck_predictor = nn.Sequential(
+            nn.Linear(hidden, hidden // 2),
+            nn.ReLU(),
+            nn.Linear(hidden // 2, 4)  # Predict puck x, y, vx, vy
+        )
+        
+        # 3. Role classifier - helps learn when to attack vs defend
+        self.role_classifier = nn.Sequential(
+            nn.Linear(hidden, hidden // 4),
+            nn.ReLU(),
+            nn.Linear(hidden // 4, 3)  # 3 roles: attack, defend, support
+        )
+        
+        # 4. Goal threat estimator - helps prioritize defensive urgency
+        self.threat_estimator = nn.Sequential(
+            nn.Linear(hidden, hidden // 4),
+            nn.ReLU(),
+            nn.Linear(hidden // 4, 1),
+            nn.Sigmoid()  # Output probability of goal threat
+        )
+
         self._init_weights()
-    
+        
+        # Store auxiliary loss weights
+        self.aux_loss_weights = {
+            'position': 0.01,    # Was 0.1
+            'puck': 0.005,        # Was 0.05
+            'role': 0.005,        # Was 0.05
+            'threat': 0.01        # Was 0.1
+        }
+
     def _init_weights(self):
         """Initialize weights"""
         for m in self.modules():
@@ -463,16 +477,61 @@ class ActorCritic(nn.Module):
                 nn.init.constant_(layer.bias, 0.0)
         print("✓ Value head reset")
     
-    def forward(self, obs: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
-        """Forward pass"""
+    def forward(self, obs: torch.Tensor, return_auxiliary: bool = False):
+        """
+        Forward pass
+        
+        Args:
+            obs: Observation tensor
+            return_auxiliary: If True, also return auxiliary predictions
+        
+        Returns:
+            action_mean: Mean of action distribution
+            value: Value estimate
+            aux_outputs: Dictionary of auxiliary outputs (if requested)
+        """
         features = self.shared_net(obs)
+        
+        # Primary outputs
         action_mean = torch.tanh(self.actor_mean(features))
         value = self.critic(features)
-        return action_mean, value
+        
+        if not return_auxiliary:
+            return action_mean, value
+        
+        # Auxiliary outputs
+        aux_outputs = {
+            'position': self.position_predictor(features),
+            'puck': self.puck_predictor(features),
+            'role': self.role_classifier(features),
+            'threat': self.threat_estimator(features)
+        }
+        
+        return action_mean, value, aux_outputs
     
-    def get_action_and_value(self, obs: torch.Tensor, action: Optional[torch.Tensor] = None):
-        """Get action, log prob, entropy, and value"""
-        action_mean, value = self(obs)
+    def get_action_and_value(self, obs: torch.Tensor, action: Optional[torch.Tensor] = None,
+                            return_auxiliary: bool = False):
+        """
+        Get action, log prob, entropy, value, and optionally auxiliary outputs
+        
+        Args:
+            obs: Observation tensor
+            action: Optional action tensor (for computing log_prob of given action)
+            return_auxiliary: If True, also return auxiliary predictions
+        
+        Returns:
+            action: Sampled or provided action
+            log_prob: Log probability of action
+            entropy: Entropy of action distribution
+            value: Value estimate
+            aux_outputs: Dictionary of auxiliary outputs (if requested)
+        """
+        if return_auxiliary:
+            action_mean, value, aux_outputs = self(obs, return_auxiliary=True)
+        else:
+            action_mean, value = self(obs, return_auxiliary=False)
+            aux_outputs = None
+        
         action_std = torch.exp(self.actor_logstd).expand_as(action_mean)
         dist = torch.distributions.Normal(action_mean, action_std)
         
@@ -482,7 +541,139 @@ class ActorCritic(nn.Module):
         log_prob = dist.log_prob(action).sum(-1, keepdim=True)
         entropy = dist.entropy().sum(-1, keepdim=True)
         
-        return action, log_prob, entropy, value
+        if return_auxiliary:
+            return action, log_prob, entropy, value, aux_outputs
+        else:
+            return action, log_prob, entropy, value
+    
+    def compute_auxiliary_losses(self, obs: torch.Tensor, targets: dict) -> dict:
+        """
+        Compute auxiliary losses for improved learning
+        
+        Args:
+            obs: Observation batch
+            targets: Dictionary containing ground truth for auxiliary tasks
+                - 'position': Agent positions (normalized to [0, 1])
+                - 'puck': Puck state [x, y, vx, vy] (normalized)
+                - 'role': Current role labels (0: attack, 1: defend, 2: support)
+                - 'threat': Goal threat level (0-1)
+        
+        Returns:
+            Dictionary of auxiliary losses
+        """
+        _, _, aux_outputs = self(obs, return_auxiliary=True)
+        losses = {}
+        
+        # Position prediction loss
+        if 'position' in targets:
+            position_loss = F.mse_loss(
+                aux_outputs['position'], 
+                targets['position']
+            )
+            losses['position'] = position_loss * self.aux_loss_weights['position']
+        
+        # Puck state prediction loss
+        if 'puck' in targets:
+            puck_loss = F.mse_loss(
+                aux_outputs['puck'],
+                targets['puck']
+            )
+            losses['puck'] = puck_loss * self.aux_loss_weights['puck']
+        
+        # Role classification loss
+        if 'role' in targets:
+            role_loss = F.cross_entropy(
+                aux_outputs['role'],
+                targets['role']
+            )
+            losses['role'] = role_loss * self.aux_loss_weights['role']
+        
+        # Goal threat estimation loss
+        if 'threat' in targets:
+            threat_loss = F.binary_cross_entropy(
+                aux_outputs['threat'].squeeze(-1),
+                targets['threat']
+            )
+            losses['threat'] = threat_loss * self.aux_loss_weights['threat']
+        
+        # Total auxiliary loss
+        losses['total'] = sum(losses.values())
+        
+        return losses
+    
+    def get_role_probabilities(self, obs: torch.Tensor) -> torch.Tensor:
+        """Get role probabilities for debugging/visualization"""
+        features = self.shared_net(obs)
+        role_logits = self.role_classifier(features)
+        return F.softmax(role_logits, dim=-1)
+    
+    def get_threat_level(self, obs: torch.Tensor) -> torch.Tensor:
+        """Get perceived threat level for debugging/visualization"""
+        features = self.shared_net(obs)
+        return self.threat_estimator(features)
+
+
+# === HELPER FUNCTIONS FOR TRAINING ===
+
+def extract_auxiliary_targets(env_state: dict, env: AirHockeyEnv) -> dict:
+    """
+    Extract ground truth targets for auxiliary objectives from environment state
+    
+    Args:
+        env_state: Current environment state dictionary
+        env: Environment instance (for normalization constants)
+    
+    Returns:
+        Dictionary of auxiliary targets
+    """
+    targets = {}
+    
+    # Normalize positions to [0, 1]
+    targets['position'] = torch.tensor([
+        env_state['agent_x'] / env.engine.width,
+        env_state['agent_y'] / env.engine.height
+    ], dtype=torch.float32)
+    
+    # Normalize puck state
+    targets['puck'] = torch.tensor([
+        env_state['puck_x'] / env.engine.width,
+        env_state['puck_y'] / env.engine.height,
+        env_state['puck_vx'] / env.engine.puck_max_speed,
+        env_state['puck_vy'] / env.engine.puck_max_speed
+    ], dtype=torch.float32)
+    
+    # Determine current role based on game state
+    puck_x = env_state['puck_x']
+    agent_x = env_state['agent_x'][0]  # Assuming we're training agent 0
+    half_line = env.engine.width / 2.0
+    
+    if puck_x < half_line:  # Puck in our half
+        if agent_x < puck_x:
+            role = 1  # Defending
+        else:
+            role = 2  # Supporting
+    else:  # Puck in opponent's half
+        if abs(agent_x - puck_x) < 50:  # Close to puck
+            role = 0  # Attacking
+        else:
+            role = 2  # Supporting
+    
+    targets['role'] = torch.tensor(role, dtype=torch.long)
+    
+    # Estimate goal threat (simple heuristic)
+    puck_speed = np.hypot(env_state['puck_vx'], env_state['puck_vy'])
+    puck_toward_our_goal = env_state['puck_vx'] < 0
+    distance_to_goal = puck_x
+    
+    if puck_toward_our_goal and puck_x < half_line:
+        threat = min(1.0, puck_speed / env.engine.puck_max_speed * 
+                     (1.0 - distance_to_goal / env.engine.width))
+    else:
+        threat = 0.0
+    
+    targets['threat'] = torch.tensor(threat, dtype=torch.float32)
+    
+    return targets
 
 
 class PPOTrainer:

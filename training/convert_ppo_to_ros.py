@@ -23,13 +23,9 @@ from training.train_ppo import ActorCritic, PPOConfig, AirHockeyEnv
 from training.ppo_ros_policy import PPOAgentPolicy
 
 
-def convert_checkpoint(
-    checkpoint_path: str,
-    output_dir: str,
-    num_agents: int = 2,
-    device: str = "cpu"
-):
-    """Convert PPO checkpoint to ROS-compatible format"""
+def convert_checkpoint(checkpoint_path: str, output_dir: str, num_agents: int = 2, device: str = "cpu"):
+    """Convert PPO checkpoint to individual ROS policies"""
+    
     print(f"\n{'='*60}")
     print(f"Converting PPO Checkpoint to ROS Format")
     print(f"{'='*60}")
@@ -39,15 +35,39 @@ def convert_checkpoint(
     print(f"Device: {device}")
     print()
     
-    # Load checkpoint
+    # Load checkpoint once
     print("Loading checkpoint...")
     device_obj = torch.device(device)
     checkpoint = torch.load(checkpoint_path, map_location=device_obj, weights_only=False)
     
-    # Get state dict
-    state_dict = checkpoint.get('model_state_dict', 
-                               checkpoint.get('network_state_dict',
-                                            checkpoint.get('state_dict', checkpoint)))
+    # Get model state dict
+    if 'model_state_dict' in checkpoint:
+        full_state_dict = checkpoint['model_state_dict']
+    elif 'network_state_dict' in checkpoint:
+        full_state_dict = checkpoint['network_state_dict']
+    elif 'state_dict' in checkpoint:
+        full_state_dict = checkpoint['state_dict']
+    else:
+        full_state_dict = checkpoint
+    
+    # Filter out auxiliary training heads
+    AUXILIARY_PREFIXES = [
+        'position_predictor',
+        'puck_predictor', 
+        'role_classifier',
+        'threat_estimator'
+    ]
+    
+    filtered_state_dict = {}
+    for key, value in full_state_dict.items():
+        # Skip auxiliary heads
+        if any(key.startswith(prefix) for prefix in AUXILIARY_PREFIXES):
+            print(f"  Skipping auxiliary component: {key}")
+            continue
+        filtered_state_dict[key] = value
+    
+    print(f"  Kept {len(filtered_state_dict)} core parameters")
+    print(f"  Filtered out {len(full_state_dict) - len(filtered_state_dict)} auxiliary parameters")
     
     # Get or create config
     if 'config' in checkpoint:
@@ -79,30 +99,32 @@ def convert_checkpoint(
     # Get network dimensions
     obs_dim = env.obs_dim
     action_dim = env.action_dim
-    hidden_dim = config.hidden_dim
+    hidden_dim = config.hidden_dim if hasattr(config, 'hidden_dim') else 128
     
     # Create output directory
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
     
     print(f"\nCreating {num_agents} agent policies for Team A...")
-
-    # Convert state dict to CPU
+    
+    # Convert filtered state dict to CPU
     cpu_state_dict = {k: v.cpu() if isinstance(v, torch.Tensor) else v 
-                    for k, v in state_dict.items()}
-
+                     for k, v in filtered_state_dict.items()}
+    
     # Create and save agent policies (ONLY for Team A)
-    for agent_id in range(num_agents):  # ← CHANGED from num_agents * 2
+    for agent_id in range(num_agents):
+        print(f"Creating policy for Agent {agent_id}")
+        
         policy = PPOAgentPolicy(
-            network_state_dict=copy.deepcopy(cpu_state_dict),
-            obs_dim=obs_dim,
-            hidden_dim=hidden_dim,
-            action_dim=action_dim,
             agent_id=agent_id,
-            num_team_agents=num_agents,
-            num_opponent_agents=num_agents,
-            scenario_params=scenario_params,
-            device='cpu'
+            obs_dim=obs_dim,
+            action_dim=action_dim,
+            hidden_dim=hidden_dim,
+            device='cpu',
+            network_state_dict=copy.deepcopy(cpu_state_dict),
+            num_team_agents=num_agents,           # ADD THIS
+            num_opponent_agents=num_agents,        # ADD THIS
+            scenario_params=scenario_params        # ADD THIS
         )
         
         policy_file = output_path / f"ppo_agent_{agent_id}.pkl"
@@ -110,12 +132,12 @@ def convert_checkpoint(
             pickle.dump(policy, f)
         
         print(f"  ✓ Saved: {policy_file.name}")
-
+    
     print(f"\n{'='*60}")
     print(f"✓ Conversion Complete!")
     print(f"{'='*60}")
-    print(f"\nCreated {num_agents} policy files for Team A")  # ← CHANGED
-    print(f"Opponents will be generated dynamically during testing")  # ← ADD THIS
+    print(f"\nCreated {num_agents} policy files for Team A")
+    print(f"Opponents will be generated dynamically during testing")
     print(f"\nTo test: python test_ros_agent.py --policy-dir {output_dir}")
 
 

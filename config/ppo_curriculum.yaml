@@ -60,118 +60,108 @@ standard:
 # Progressive learning over multiple phases
 # ============================================
 
-# Phase 1: Master offense against static
-phase_1:
-  name: "master_offense"
-  timesteps: 600000
+phase_0:
+  name: "learn_contact"
+  timesteps: 100000
   opponent_type: "static"
-  max_score: 3
-  max_steps: 800
-  learning_rate: 0.0003
-  ent_coef: 0.01
-  clip_range: 0.2
+  max_score: 100
+  max_steps: 400  # Short episodes
+  learning_rate: 0.001
+  ent_coef: 0.05  # Lower entropy from start
+  clip_range: 0.3  # Allow bigger updates
   
   rewards:
-    # Pure offense - no defense yet
-    goal_scored: 1000.0
-    goal_conceded: -1000.0
+    goal_scored: 100.0
+    goal_conceded: 0.0
     approach_puck: 5.0
-    proximity_to_puck: 20.0
-    contact_puck: 100.0
-    shoot_toward_goal: 200.0
-    
-    # No defense in Phase 1
+    proximity_to_puck: 10.0  # Reduced
+    contact_puck: 500.0  # HUGE contact reward
+    shoot_toward_goal: 50.0
+    # Everything else OFF
+    field_coverage: 0.0
     defensive_position: 0.0
+    transition_speed: 0.0
     center_coverage: 0.0
-    
-    # No penalties yet
     teammate_collision: 0.0
     action_penalty: 0.0
     unnecessary_movement: 0.0
 
-# Phase 2: Add random opponent, tiny defense hints
-phase_2:
-  name: "vs_random"
-  timesteps: 200000
-  opponent_type: "random"
-  max_score: 3
-  max_steps: 1000
-  learning_rate: 0.0002
-  ent_coef: 0.003
+# Phase 1: JUST LEARN TO HIT THE PUCK
+phase_1:
+  name: "learn_puck_interaction"
+  timesteps: 200000  # More time on basics
+  opponent_type: "static"
+  max_score: 10  # Allow some goals
+  max_steps: 800
+  learning_rate: 0.0005  # More conservative
+  ent_coef: 0.1  # Less exploration
   clip_range: 0.2
   
   rewards:
-    # Keep offense strong
-    goal_scored: 1000.0
-    goal_conceded: -1000.0
-    approach_puck: 5.0
-    proximity_to_puck: 20.0
-    contact_puck: 100.0
-    shoot_toward_goal: 200.0
-    
-    # Introduce minimal defense (conditional on puck location)
-    defensive_position: 0.03
-    center_coverage: 0.02
-    
-    # Small collision penalty
-    teammate_collision: 0.1
+    # Focus ONLY on puck interaction
+    goal_scored: 500.0
+    goal_conceded: 0.0  # No penalty yet
+    approach_puck: 15.0
+    proximity_to_puck: 40.0
+    contact_puck: 200.0
+    shoot_toward_goal: 300.0
+    # Everything else OFF
+    field_coverage: 0.0
+    defensive_position: 0.0
+    transition_speed: 0.0
+    center_coverage: 0.0
+    teammate_collision: -2.0
     action_penalty: 0.0
     unnecessary_movement: 0.0
 
-# Phase 3: Longer games, more defense
-phase_3:
-  name: "extended_random"
+# Phase 2: Add basic positioning
+phase_2:
+  name: "learn_positioning"
   timesteps: 150000
   opponent_type: "random"
   max_score: 5
-  max_steps: 1500
-  learning_rate: 0.0001
-  ent_coef: 0.002
-  clip_range: 0.2
+  max_steps: 1200
+  learning_rate: 0.0003
+  ent_coef: 0.05
   
   rewards:
-    # Offense still dominant
-    goal_scored: 1000.0
-    goal_conceded: -1000.0
-    approach_puck: 5.0
-    proximity_to_puck: 20.0
-    contact_puck: 100.0
-    shoot_toward_goal: 200.0
-    
-    # Slightly more defense
-    defensive_position: 0.05
-    center_coverage: 0.03
-    
-    # More collision penalty
-    teammate_collision: 0.15
-    action_penalty: 0.0
-    unnecessary_movement: 0.0
+    goal_scored: 750.0
+    goal_conceded: -300.0  # Small penalty
+    approach_puck: 12.0
+    proximity_to_puck: 35.0
+    contact_puck: 180.0
+    shoot_toward_goal: 280.0
+    # Gradually introduce positioning
+    field_coverage: 5.0  # Very small
+    defensive_position: 3.0  # Very small
+    transition_speed: 2.0
+    center_coverage: 2.0
+    teammate_collision: -3.0
+    action_penalty: -0.0005
+    unnecessary_movement: -0.001
 
-# Phase 4: Simple AI with balanced defense
-phase_4:
-  name: "vs_simple_ai"
+# Phase 3: Full game
+phase_3:
+  name: "full_game"
   timesteps: 200000
   opponent_type: "simple"
   max_score: 5
   max_steps: 1500
-  learning_rate: 0.00005
-  ent_coef: 0.001
-  clip_range: 0.15
+  learning_rate: 0.0001
+  ent_coef: 0.02
   
   rewards:
-    # Offense remains most important
     goal_scored: 1000.0
     goal_conceded: -1000.0
-    approach_puck: 5.0
-    proximity_to_puck: 20.0
-    contact_puck: 100.0
-    shoot_toward_goal: 200.0
-    
-    # Meaningful defense (but conditional - only ~50% of time)
-    defensive_position: 0.08
-    center_coverage: 0.05
-    
-    # Full penalties
-    teammate_collision: 0.2
-    action_penalty: 0.0
-    unnecessary_movement: 0.0
+    approach_puck: 10.0
+    proximity_to_puck: 30.0
+    contact_puck: 150.0
+    shoot_toward_goal: 250.0
+    # Moderate positioning
+    field_coverage: 15.0
+    defensive_position: 10.0
+    transition_speed: 8.0
+    center_coverage: 8.0
+    teammate_collision: -5.0
+    action_penalty: -0.001
+    unnecessary_movement: -0.005
