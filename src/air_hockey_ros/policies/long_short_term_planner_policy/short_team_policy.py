@@ -17,8 +17,8 @@ class ShortTeamPolicy(TeamPolicy):
         unit_speed_px = self.rules.get('unit_speed_px', 4)
 
         self.objectives = [(ObjectiveEnum.FAST_SHOT, {}),
-                           (ObjectiveEnum.INTERCEPT, {}),
                            (ObjectiveEnum.DEFEND_LINE, {}),
+                           (ObjectiveEnum.INTERCEPT, {}),
                            (ObjectiveEnum.PASS_SHOT, {}),
                            (ObjectiveEnum.DEFEND_LINE,
                             {'defense_row': 2 * (goal_offset + paddle_radius + unit_speed_px)})
