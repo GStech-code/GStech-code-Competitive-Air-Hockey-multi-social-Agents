@@ -1,28 +1,90 @@
 """
-Complete Curriculum Learning PPO Trainer
-Gradually increases task difficulty over training phases
+Curriculum Learning PPO Trainer - FIXED VERSION
+
+Key improvements:
+1. Reward normalization (prevents value explosion)
+2. Value function reset at phase transitions
+3. KL divergence monitoring (early stopping)
+4. Gradient monitoring
+5. Enhanced diagnostics
+
+Usage:
+    python train_ppo_curriculum.py
 """
 
 import os
 import yaml
 import torch
+import torch.nn as nn
 import logging
 from pathlib import Path
 import sys
 import numpy as np
+from collections import deque
+from typing import Dict
 
 # Fix import paths
 current_file = Path(__file__).resolve()
 training_dir = current_file.parent
 project_root = training_dir.parent
 
-# Add to path
 sys.path.insert(0, str(project_root / "src"))
 sys.path.insert(0, str(training_dir))
 
-# Import from train_ppo (same directory)
 from train_ppo import PPOTrainer, PPOConfig, AirHockeyEnv
 
+
+# ============================================
+# REWARD NORMALIZER (Critical for stability!)
+# ============================================
+
+class RunningMeanStd:
+    """
+    Tracks running mean and std to normalize returns
+    Prevents value function explosion
+    """
+    def __init__(self, epsilon=1e-8, clip_range=10.0):
+        self.mean = 0.0
+        self.var = 1.0
+        self.count = 0
+        self.epsilon = epsilon
+        self.clip_range = clip_range
+    
+    def update(self, x: np.ndarray):
+        """Update running statistics"""
+        if len(x) == 0:
+            return
+        
+        batch_mean = np.mean(x)
+        batch_var = np.var(x)
+        batch_count = len(x)
+        
+        delta = batch_mean - self.mean
+        total_count = self.count + batch_count
+        
+        new_mean = self.mean + delta * batch_count / total_count
+        m_a = self.var * self.count
+        m_b = batch_var * batch_count
+        M2 = m_a + m_b + delta**2 * self.count * batch_count / total_count
+        new_var = M2 / total_count if total_count > 0 else 1.0
+        
+        self.mean = new_mean
+        self.var = new_var
+        self.count = total_count
+    
+    def normalize(self, x: np.ndarray) -> np.ndarray:
+        """Normalize and clip values"""
+        if self.count < 2:
+            return np.clip(x, -self.clip_range, self.clip_range)
+        
+        std = np.sqrt(self.var + self.epsilon)
+        normalized = (x - self.mean) / std
+        return np.clip(normalized, -self.clip_range, self.clip_range)
+
+
+# ============================================
+# CURRICULUM PHASE
+# ============================================
 
 class CurriculumPhase:
     """Represents one phase of curriculum learning"""
@@ -33,14 +95,19 @@ class CurriculumPhase:
         self.opponent_type = config.get('opponent_type', 'random')
         self.max_score = config.get('max_score', 3)
         self.max_steps = config.get('max_steps', 1200)
-        # Update hyperparameters for this phase
         self.learning_rate = config.get('learning_rate', base_config.learning_rate)
         self.ent_coef = config.get('ent_coef', base_config.ent_coef)
         self.clip_range = config.get('clip_range', base_config.clip_range)
         
-        # Reward weights for this phase
+        # Read phase-specific team sizes
+        self.num_agents_team_b = config.get('num_agents_team_b', base_config.num_agents_team_b)
+        
         self.rewards = config.get('rewards', {})
 
+
+# ============================================
+# CURRICULUM TRAINER
+# ============================================
 
 class CurriculumTrainer:
     """Manages curriculum learning across multiple phases"""
@@ -68,6 +135,7 @@ class CurriculumTrainer:
                 self.base_config
             )
             self.phases.append(phase)
+        
         self.load_checkpoint = load_checkpoint
         self.logger = self._setup_logging()
     
@@ -85,23 +153,22 @@ class CurriculumTrainer:
     
     def train(self):
         """Run curriculum learning across all phases"""
-        self.logger.info("=" * 60)
+        self.logger.info("")
         self.logger.info("CURRICULUM LEARNING STARTED")
-        self.logger.info("=" * 60)
         
         trainer = None
         total_timesteps_so_far = 0
         
         for phase_idx, phase in enumerate(self.phases):
             self.logger.info("")
-            self.logger.info("=" * 60)
+            self.logger.info("=" * 30)
             self.logger.info(f"PHASE {phase_idx + 1}/{len(self.phases)}: {phase.name.upper()}")
             self.logger.info(f"Timesteps: {phase.timesteps:,}")
             self.logger.info(f"Opponent: {phase.opponent_type}")
             self.logger.info(f"LR: {phase.learning_rate}, Entropy: {phase.ent_coef}")
-            self.logger.info("=" * 60)
+            self.logger.info("=" * 30)
             
-            # Create or update trainer for this phase
+            # Create or update trainer
             if trainer is None:
                 # First phase: create trainer
                 trainer = CurriculumPPOTrainer(
@@ -118,27 +185,18 @@ class CurriculumTrainer:
                                               map_location=trainer.device, 
                                               weights_only=False)
                         
-                        # Load model state
                         if 'model_state_dict' in checkpoint:
                             trainer.agent.load_state_dict(checkpoint['model_state_dict'])
                         else:
                             trainer.agent.load_state_dict(checkpoint)
                         
-                        # Load optimizer state if available
                         if 'optimizer_state_dict' in checkpoint:
                             trainer.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
                         
                         self.logger.info("✓ Checkpoint loaded successfully!")
-                        
-                        # Log checkpoint info if available
-                        if 'phase' in checkpoint:
-                            self.logger.info(f"  Previous phase: {checkpoint['phase']}")
-                        if 'name' in checkpoint:
-                            self.logger.info(f"  Checkpoint name: {checkpoint['name']}")
-                        
                     except Exception as e:
                         self.logger.error(f"Failed to load checkpoint: {e}")
-                        self.logger.info("Starting with random initialization instead")
+                        self.logger.info("Starting with random initialization")
             else:
                 # Update existing trainer for new phase
                 trainer.update_for_phase(phase)
@@ -148,42 +206,59 @@ class CurriculumTrainer:
             
             total_timesteps_so_far += phase.timesteps
             
-            # Save checkpoint after each phase
+            # Save checkpoint after phase
             checkpoint_name = f"phase_{phase_idx + 1}_{phase.name}"
             trainer.save_checkpoint_named(checkpoint_name)
             
             self.logger.info(f"Phase {phase_idx + 1} complete. Total timesteps: {total_timesteps_so_far:,}")
         
         self.logger.info("")
-        self.logger.info("=" * 60)
+        self.logger.info("=" * 30)
         self.logger.info("CURRICULUM LEARNING COMPLETED!")
         self.logger.info(f"Total timesteps: {total_timesteps_so_far:,}")
-        self.logger.info("=" * 60)
+        self.logger.info("=" * 30)
 
+
+# ============================================
+# CURRICULUM PPO TRAINER (with all fixes)
+# ============================================
 
 class CurriculumPPOTrainer(PPOTrainer):
-    """Extended PPO trainer with curriculum learning support"""
+    """Extended PPO trainer with curriculum learning and stability fixes"""
     
     def __init__(self, config: PPOConfig, scenario_params: dict, initial_phase: CurriculumPhase):
         super().__init__(config, scenario_params)
+        
+        # Store scenario_params so _generate_opponent_actions can access it
+        self.scenario_params = scenario_params
+        
         self.current_phase = initial_phase
         self.phase_rollout_count = 0
-        
-        # Track previous actions for smoothness rewards
         self.prev_actions = None
+        
+        # === CRITICAL: Add reward normalizer ===
+        self.reward_normalizer = RunningMeanStd(clip_range=10.0)
+        
+        # Diagnostics
+        self.diagnostics = {
+            'puck_contacts': deque(maxlen=100),
+            'approach_rewards': deque(maxlen=100),
+            'value_estimates': deque(maxlen=100)
+        }
         
         self.update_for_phase(initial_phase)
     
     def update_for_phase(self, phase: CurriculumPhase):
         """Update trainer settings for new curriculum phase"""
+        prev_phase_name = self.current_phase.name if hasattr(self, 'current_phase') else None
         self.current_phase = phase
         self.phase_rollout_count = 0
         self.prev_actions = None
         
-        # Update episode termination for this phase
+        # Update episode termination
         self.env.max_score = phase.max_score
         self.env.max_steps = phase.max_steps
-
+        
         # Update optimizer learning rate
         for param_group in self.optimizer.param_groups:
             param_group['lr'] = phase.learning_rate
@@ -192,24 +267,194 @@ class CurriculumPPOTrainer(PPOTrainer):
         self.config.ent_coef = phase.ent_coef
         self.config.clip_range = phase.clip_range
         
+        # ONLY reset value function for major transitions
+        should_reset = (
+            prev_phase_name is None or  # First phase
+            (prev_phase_name == "learn_hitting" and phase.name == "learn_shooting")  # Hitting -> Shooting
+        )
+        
+        if should_reset:
+            # Reset value head
+            if hasattr(self.agent, 'critic'):
+                self.agent.critic.apply(lambda m: (
+                    m.reset_parameters() if hasattr(m, 'reset_parameters') else None
+                ))
+            self.logger.info("✓ Value head reset for new phase")
+            
+            # Reset reward normalizer
+            self.reward_normalizer = RunningMeanStd(clip_range=10.0)
+            self.logger.info("✓ Reward normalizer reset")
+        else:
+            self.logger.info("→ Continuing without reset (similar task)")
+        
         self.logger.info(f"Updated for phase: {phase.name}")
+        self.logger.info(f"  LR: {phase.learning_rate}, Entropy: {phase.ent_coef}")
+        self.logger.info(f"  Max steps: {phase.max_steps}, Max score: {phase.max_score}")
+    
+    def update_policy(self):
+        """
+        PPO update with numerical stability improvements + Entropy Decay
+        """
+        # Flatten buffers
+        obs = np.array(self.obs_buffer).reshape(-1, self.env.obs_dim)
+        actions = np.array(self.action_buffer).reshape(-1, self.env.action_dim)
+        old_logprobs = np.array(self.logprob_buffer).reshape(-1, 1)
+        advantages = self.advantages.reshape(-1, 1)
+        returns = self.returns.reshape(-1, 1)
+        
+        # === FIX 3: Normalize advantages ===
+        advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
+        
+        # === FIX 4: Normalize returns (prevents value explosion) ===
+        self.reward_normalizer.update(returns.flatten())
+        returns_normalized = self.reward_normalizer.normalize(returns)
+        
+        # Convert to tensors
+        obs_tensor = torch.FloatTensor(obs).to(self.device)
+        actions_tensor = torch.FloatTensor(actions).to(self.device)
+        old_logprobs_tensor = torch.FloatTensor(old_logprobs).to(self.device)
+        advantages_tensor = torch.FloatTensor(advantages).to(self.device)
+        returns_tensor = torch.FloatTensor(returns_normalized).to(self.device)
+        
+        # Training metrics
+        total_policy_loss = 0
+        total_value_loss = 0
+        total_entropy = 0
+        total_clipfrac = 0
+        total_kl = 0
+        n_updates = 0
+        
+        # === FIX 5: Early stopping on KL divergence ===
+        target_kl = 0.05   # More permissive, but still controlled
+        
+        for epoch in range(self.config.n_epochs):
+            indices = np.arange(len(obs))
+            np.random.shuffle(indices)
+            
+            epoch_kls = []
+            
+            for start in range(0, len(obs), self.config.batch_size):
+                end = start + self.config.batch_size
+                mb_indices = indices[start:end]
+                
+                # Get current predictions
+                _, new_logprobs, entropy, values = self.agent.get_action_and_value(
+                    obs_tensor[mb_indices],
+                    actions_tensor[mb_indices]
+                )
+                
+                # === FIX 6: Monitor KL divergence ===
+                logratio = new_logprobs - old_logprobs_tensor[mb_indices]
+                ratio = torch.exp(logratio)
+                with torch.no_grad():
+                    approx_kl = ((ratio - 1) - logratio).mean()
+                    epoch_kls.append(approx_kl.item())
+                
+                # Policy loss (PPO clip)
+                surr1 = ratio * advantages_tensor[mb_indices]
+                surr2 = torch.clamp(ratio, 1 - self.config.clip_range, 
+                                1 + self.config.clip_range) * advantages_tensor[mb_indices]
+                policy_loss = -torch.min(surr1, surr2).mean()
+                
+                # === FIX 7: Clipped value loss ===
+                value_loss_unclipped = (values - returns_tensor[mb_indices]).pow(2)
+                
+                if hasattr(self.config, 'clip_range_vf') and self.config.clip_range_vf:
+                    values_clipped = returns_tensor[mb_indices] + torch.clamp(
+                        values - returns_tensor[mb_indices],
+                        -self.config.clip_range_vf,
+                        self.config.clip_range_vf
+                    )
+                    value_loss_clipped = (values_clipped - returns_tensor[mb_indices]).pow(2)
+                    value_loss = torch.max(value_loss_unclipped, value_loss_clipped).mean()
+                else:
+                    value_loss = value_loss_unclipped.mean()
+                
+                # Entropy bonus
+                entropy_loss = -entropy.mean()
+                
+                # Total loss
+                loss = (policy_loss + 
+                    self.config.vf_coef * value_loss + 
+                    self.config.ent_coef * entropy_loss)
+                
+                # === FIX 8: Gradient clipping with monitoring ===
+                self.optimizer.zero_grad()
+                loss.backward()
+                grad_norm = nn.utils.clip_grad_norm_(self.agent.parameters(), 
+                                                    self.config.max_grad_norm)
+                
+                # Detect gradient issues
+                if torch.isnan(grad_norm) or torch.isinf(grad_norm):
+                    self.logger.warning(f"⚠️  NaN/Inf gradient detected! Skipping update.")
+                    continue
+                
+                if grad_norm > 100.0:
+                    self.logger.warning(f"⚠️  Large gradient norm: {grad_norm:.2f}")
+                
+                self.optimizer.step()
+                
+                # Track metrics
+                total_policy_loss += policy_loss.item()
+                total_value_loss += value_loss.item()
+                total_entropy += -entropy_loss.item()
+                clipfrac = ((ratio - 1.0).abs() > self.config.clip_range).float().mean()
+                total_clipfrac += clipfrac.item()
+                n_updates += 1
+            
+            # === FIX 9: Early stopping if KL too high ===
+            mean_epoch_kl = np.mean(epoch_kls) if epoch_kls else 0.0
+            total_kl += mean_epoch_kl
+            
+            if mean_epoch_kl > target_kl:
+                self.logger.info(f"  Early stopping at epoch {epoch+1}/{self.config.n_epochs} "
+                            f"(KL={mean_epoch_kl:.4f} > {target_kl})")
+                break
+        
+        # === FIX 10: ENTROPY DECAY - Gradually reduce exploration ===
+        # This prevents the policy from staying random forever
+        old_ent_coef = self.config.ent_coef
+        decay_rate = 0.95  # ← CHANGE from 0.9995
+        min_ent_coef = 0.001
+        
+        self.config.ent_coef = max(min_ent_coef, self.config.ent_coef * decay_rate)
+        
+        # Log entropy decay every 50 updates for monitoring
+        if not hasattr(self, '_update_count'):
+            self._update_count = 0
+        self._update_count += 1
+        
+        if self._update_count % 50 == 0:
+            self.logger.info(f"  Entropy coefficient decayed: {old_ent_coef:.6f} → {self.config.ent_coef:.6f}")
+        
+        # Store diagnostic info
+        self.diagnostics['value_estimates'].append(np.mean([v.mean() for v in self.value_buffer]))
+        
+        return {
+            'policy_loss': total_policy_loss / n_updates if n_updates > 0 else 0,
+            'value_loss': total_value_loss / n_updates if n_updates > 0 else 0,
+            'entropy': total_entropy / n_updates if n_updates > 0 else 0,
+            'clipfrac': total_clipfrac / n_updates if n_updates > 0 else 0,
+            'approx_kl': total_kl / (epoch + 1),
+            'ent_coef': self.config.ent_coef,  # Track current entropy coefficient
+        }
     
     def train_phase(self, timesteps: int):
-        """Train for specified timesteps in current phase"""
+        """Train with enhanced diagnostics"""
         n_rollouts = timesteps // self.config.n_steps
         
         for rollout in range(n_rollouts):
             self.phase_rollout_count += 1
             
             # Collect experience
-            rollout_info = self.collect_rollouts_with_opponent(
+            rollout_info = self.collect_rollouts(
                 self.current_phase.opponent_type
             )
             
             # Update policy
             update_info = self.update_policy()
             
-            # Logging
+            # Enhanced logging
             if rollout % self.config.log_interval == 0:
                 phase_timesteps = (rollout + 1) * self.config.n_steps
                 
@@ -224,6 +469,7 @@ class CurriculumPPOTrainer(PPOTrainer):
                     mean_goals_for = 0
                     mean_goals_against = 0
                 
+                # Basic log
                 self.logger.info(
                     f"[{self.current_phase.name}] Rollout {rollout + 1}/{n_rollouts} | "
                     f"Steps: {phase_timesteps}/{timesteps} | "
@@ -234,27 +480,42 @@ class CurriculumPPOTrainer(PPOTrainer):
                     f"V Loss: {update_info['value_loss']:.4f} | "
                     f"Entropy: {update_info['entropy']:.4f}"
                 )
+                
+                # === NEW: Diagnostic warnings ===
+                if rollout > 10:  # After warm-up
+                    if mean_reward < -1000:
+                        self.logger.warning("⚠️  Very negative rewards! Check reward function.")
+                    
+                    if update_info['value_loss'] > 1000:
+                        self.logger.warning("⚠️  Value loss exploding! Check normalization.")
+                    
+                    if update_info['entropy'] < 0.1:
+                        self.logger.warning("⚠️  Very low entropy - policy collapsed!")
+                    
+                    # Only warn about no goals if we're past Phase 1
+                    if (mean_goals_for == 0 and mean_goals_against == 0 and 
+                        rollout > 30 and self.current_phase.name != "learn_hitting"):
+                        self.logger.warning("⚠️  No goals - agents may not be hitting puck!")
             
             # Save checkpoint during phase
             if rollout % self.config.save_interval == 0 and rollout > 0:
                 ckpt_name = f"{self.current_phase.name}_rollout_{self.phase_rollout_count}"
                 self.save_checkpoint_named(ckpt_name)
     
-    def collect_rollouts_with_opponent(self, opponent_type: str):
-        """Collect rollouts against specified opponent type"""
-        self.reset_rollout_buffer()
+    def collect_rollouts(self, opponent_type: str) -> Dict:
+        """Collect rollouts"""
+        # MUST RESET BUFFERS FIRST!
+        self.reset_rollout_buffer()  # ← ADD THIS!
+        
         obs = self.env.reset()
+        
         episode_rewards = []
         episode_lengths = []
         episode_goals_for = []
         episode_goals_against = []
+        
         current_episode_reward = 0
         current_episode_length = 0
-        
-        # Reset previous actions
-        self.prev_actions = np.zeros((self.config.num_agents_team_a, 2), dtype=np.float32)
-        
-        # Track scores
         prev_scores = {'team_a_score': 0, 'team_b_score': 0}
         
         for step in range(self.config.n_steps):
@@ -263,49 +524,31 @@ class CurriculumPPOTrainer(PPOTrainer):
             with torch.no_grad():
                 action, logprob, _, value = self.agent.get_action_and_value(obs_tensor)
             
-            # Get current world state
             world_state_before = self.env.engine.get_world_state()
-            
-            # Get opponent actions based on type
             opponent_actions = self._generate_opponent_actions(opponent_type, world_state_before)
             
-            # Combine actions
             team_a_actions = action.cpu().numpy()
             all_actions = np.vstack([team_a_actions, opponent_actions])
             
-            # Step environment (uses your improved _compute_rewards)
-            next_obs, base_reward, done, info = self.env.step(all_actions)
-            
-            # Get world state after step
-            world_state_after = self.env.engine.get_world_state()
-            
-            # Apply curriculum-specific reward shaping
-            shaped_reward = self._compute_curriculum_reward(
-                world_state_before,
-                world_state_after,
-                team_a_actions,
-                self.prev_actions,
-                base_reward,
-                self.current_phase.rewards
+            # Step environment WITH PHASE WEIGHTS
+            next_obs, reward, done, info = self.env.step(
+                all_actions, 
+                reward_weights=self.current_phase.rewards
             )
             
             # Store transition
             self.obs_buffer.append(obs)
             self.action_buffer.append(action.cpu().numpy())
-            self.reward_buffer.append(shaped_reward)
+            self.reward_buffer.append(reward)
             self.value_buffer.append(value.cpu().numpy())
             self.logprob_buffer.append(logprob.cpu().numpy())
             self.done_buffer.append(done)
             
-            current_episode_reward += shaped_reward.sum()
+            current_episode_reward += reward.sum()
             current_episode_length += 1
-            
-            # Update previous actions for next step
             self.prev_actions = team_a_actions.copy()
             
-            # Check for episode termination
             if done.any():
-                # Track goals
                 goals_for = info['scores']['team_a_score'] - prev_scores['team_a_score']
                 goals_against = info['scores']['team_b_score'] - prev_scores['team_b_score']
                 
@@ -321,7 +564,6 @@ class CurriculumPPOTrainer(PPOTrainer):
                 self.prev_actions = np.zeros((self.config.num_agents_team_a, 2), dtype=np.float32)
             else:
                 obs = next_obs
-                # Update score tracking
                 if info['scores']['team_a_score'] > prev_scores['team_a_score']:
                     prev_scores['team_a_score'] = info['scores']['team_a_score']
                 if info['scores']['team_b_score'] > prev_scores['team_b_score']:
@@ -337,189 +579,156 @@ class CurriculumPPOTrainer(PPOTrainer):
             'mean_value': np.mean([v.mean() for v in self.value_buffer])
         }
     
-    def _compute_curriculum_reward(self, world_state_before: dict, world_state_after: dict,
-                                   actions: np.ndarray, prev_actions: np.ndarray,
-                                   base_reward: np.ndarray, phase_rewards: dict) -> np.ndarray:
-        """
-        Complete curriculum reward computation with all shaping terms.
-        
-        Args:
-            world_state_before: State before action
-            world_state_after: State after action
-            actions: Current actions taken [num_agents, 2]
-            prev_actions: Previous actions [num_agents, 2]
-            base_reward: Base reward from environment (includes goals)
-            phase_rewards: Curriculum phase reward weights
-        
-        Returns:
-            Shaped rewards for each agent
-        """
-        # Start with base reward (already includes goal rewards from env)
-        rewards = base_reward.copy()
-        
-        # Get phase-specific weights
-        w_approach = phase_rewards.get('approach_puck_in_half', 0.0)
-        w_close = phase_rewards.get('close_to_puck', 0.0)
-        w_puck_vel = phase_rewards.get('puck_velocity_toward_goal', 0.0)
-        w_defense = phase_rewards.get('defensive_position', 0.0)
-        w_coverage = phase_rewards.get('center_coverage', 0.0)
-        w_action = phase_rewards.get('action_penalty', 0.0)
-        w_unnecessary = phase_rewards.get('unnecessary_movement', 0.0)
-        w_teammate_collision = phase_rewards.get('teammate_collision', 1.0)
-        
-        # Get positions from after state
-        puck_x, puck_y = world_state_after['puck_x'], world_state_after['puck_y']
-        prev_puck_x, prev_puck_y = world_state_before['puck_x'], world_state_before['puck_y']
-        puck_vx = world_state_after['puck_vx']
-        half_line = self.env.engine.width / 2.0
-        goal_center_y = self.env.engine.height / 2.0
-        paddle_radius = self.env.engine.paddle_radius
-        puck_radius = self.env.engine.puck_radius
-        hit_distance = paddle_radius + puck_radius + 5
-        
-        for i in range(self.config.num_agents_team_a):
-            agent_x = world_state_after['agent_x'][i]
-            agent_y = world_state_after['agent_y'][i]
-            prev_agent_x = world_state_before['agent_x'][i]
-            prev_agent_y = world_state_before['agent_y'][i]
-            
-            # Distance to puck
-            dist_to_puck = np.hypot(agent_x - puck_x, agent_y - puck_y)
-            prev_dist_to_puck = np.hypot(prev_agent_x - prev_puck_x, prev_agent_y - prev_puck_y)
-            
-            # === 1. APPROACH PUCK (when in our half) ===
-            if w_approach > 0 and puck_x < half_line:
-                # Reward for moving closer to puck
-                if dist_to_puck < prev_dist_to_puck:
-                    rewards[i] += w_approach
-                elif dist_to_puck > prev_dist_to_puck:
-                    rewards[i] -= w_approach * 0.5
-            
-            # === 2. CLOSE TO PUCK ===
-            if w_close > 0 and dist_to_puck < hit_distance:
-                rewards[i] += w_close
-            
-            # === 3. PUCK VELOCITY TOWARD GOAL ===
-            if w_puck_vel > 0 and puck_vx > 0 and dist_to_puck < hit_distance * 2:
-                # Puck moving right (toward opponent) and we're nearby (we likely hit it)
-                rewards[i] += w_puck_vel * abs(puck_vx)
-            
-            # === 4. DEFENSIVE POSITION ===
-            if w_defense > 0:
-                # Reward being between puck and our goal
-                if agent_x < puck_x:
-                    rewards[i] += w_defense
-                else:
-                    rewards[i] -= w_defense * 0.5
-            
-            # === 5. CENTER COVERAGE ===
-            if w_coverage > 0:
-                y_coverage = abs(agent_y - goal_center_y)
-                max_y_dist = self.env.engine.height / 4.0
-                if y_coverage < max_y_dist:
-                    coverage_reward = w_coverage * (1.0 - y_coverage / max_y_dist)
-                    rewards[i] += coverage_reward
-            
-            # === 6. ACTION PENALTY (energy efficiency) ===
-            if w_action > 0:
-                # Current action magnitude
-                action_magnitude = np.abs(actions[i]).sum()
-                rewards[i] -= w_action * action_magnitude
-                
-                # Additional penalty for action changes (jitter reduction)
-                if prev_actions is not None:
-                    action_change = np.abs(actions[i] - prev_actions[i]).sum()
-                    rewards[i] -= w_action * 0.5 * action_change
-            
-            # === 7. UNNECESSARY MOVEMENT ===
-            if w_unnecessary > 0 and dist_to_puck > self.env.engine.width / 3:
-                # Agent is far from action but still moving
-                action_magnitude = np.abs(actions[i]).sum()
-                if action_magnitude > 0.5:  # Threshold for "moving"
-                    rewards[i] -= w_unnecessary * action_magnitude
-        
-        # === 8. TEAMMATE COLLISION PENALTY ===
-        if w_teammate_collision > 0:
-            for i in range(self.config.num_agents_team_a):
-                for j in range(i + 1, self.config.num_agents_team_a):
-                    dist_to_teammate = np.hypot(
-                        world_state_after['agent_x'][i] - world_state_after['agent_x'][j],
-                        world_state_after['agent_y'][i] - world_state_after['agent_y'][j]
-                    )
-                    collision_threshold = 2 * paddle_radius + 15
-                    if dist_to_teammate < collision_threshold:
-                        penalty_scale = (1.0 - dist_to_teammate / collision_threshold)
-                        collision_penalty = w_teammate_collision * penalty_scale
-                        if dist_to_teammate < 2 * paddle_radius:
-                            collision_penalty += w_teammate_collision * 2.0
-                        rewards[i] -= collision_penalty
-                        rewards[j] -= collision_penalty
-        
-        return rewards
-    
-    def _generate_opponent_actions(self, opponent_type: str, world_state: dict):
-        """Generate opponent actions based on type"""
+    def _generate_opponent_actions(self, opponent_type: str, world_state: dict) -> np.ndarray:
+        """Generate opponent actions"""
         num_opponents = self.config.num_agents_team_b
-        actions = np.zeros((num_opponents, 2), dtype=np.float32)
         
-        if opponent_type == 'static':
-            pass  # Already zeros
-        
-        elif opponent_type == 'random':
-            for i in range(num_opponents):
-                actions[i, 0] = np.random.uniform(-1, 1)
-                actions[i, 1] = np.random.uniform(-1, 1)
-        
-        elif opponent_type == 'simple':
-            # Use simplified defensive logic
-            puck_x = world_state['puck_x']
-            puck_y = world_state['puck_y']
-            width = self.env.engine.width
-            height = self.env.engine.height
+        if opponent_type == "static":
+            return np.zeros((num_opponents, 2), dtype=np.float32)
+        elif opponent_type == "random":
+            return np.random.uniform(-1, 1, (num_opponents, 2)).astype(np.float32)
+        elif opponent_type == "simple":
+            # Import simple policy
+            from air_hockey_ros.policies.simple_policy import SimpleRegionalAgentPolicy
+            actions = []
             
+            # Access parameters from scenario_params (stored during __init__)
             for i in range(num_opponents):
                 agent_idx = self.config.num_agents_team_a + i
-                agent_x = world_state['agent_x'][agent_idx]
-                agent_y = world_state['agent_y'][agent_idx]
                 
-                # Flip for Team B perspective
-                puck_x_flipped = width - puck_x
-                agent_x_flipped = width - agent_x
+                # Create policy with correct parameters from scenario_params
+                policy = SimpleRegionalAgentPolicy(
+                    agent_id=agent_idx,
+                    puck_radius=self.scenario_params['puck_radius'],
+                    paddle_radius=self.scenario_params['paddle_radius'],
+                    x_min=self.scenario_params['width'] // 2,  # Right half for opponents
+                    x_max=self.scenario_params['width'] - self.scenario_params['paddle_radius'],
+                    y_min=self.scenario_params['paddle_radius'],
+                    y_max=self.scenario_params['height'] - self.scenario_params['paddle_radius'],
+                    unit_speed_px=self.scenario_params['unit_speed_px']
+                )
                 
-                dx = puck_x_flipped - agent_x_flipped
-                dy = puck_y - agent_y
-                
-                # Simple chase logic
-                actions[i, 0] = -np.sign(dx) if abs(dx) > 20 else 0  # Flip back
-                actions[i, 1] = np.sign(dy) if abs(dy) > 20 else 0
-        
-        elif opponent_type == 'mixed':
-            # Randomly choose opponent type for variety
-            choice = np.random.choice(['static', 'random', 'simple'])
-            return self._generate_opponent_actions(choice, world_state)
-        
-        return actions
+                action = policy.update(world_state)  # Note: method is 'update', not 'compute_action'
+                actions.append(action)
+            return np.array(actions, dtype=np.float32)
+        elif opponent_type == "mixed":
+            # Mix of different opponents
+            if np.random.rand() < 0.5:
+                return np.random.uniform(-1, 1, (num_opponents, 2)).astype(np.float32)
+            else:
+                from air_hockey_ros.policies.simple_policy import SimpleRegionalAgentPolicy
+                actions = []
+                for i in range(num_opponents):
+                    agent_idx = self.config.num_agents_team_a + i
+                    policy = SimpleRegionalAgentPolicy(
+                        agent_id=agent_idx,
+                        puck_radius=self.scenario_params['puck_radius'],
+                        paddle_radius=self.scenario_params['paddle_radius'],
+                        x_min=self.scenario_params['width'] // 2,
+                        x_max=self.scenario_params['width'] - self.scenario_params['paddle_radius'],
+                        y_min=self.scenario_params['paddle_radius'],
+                        y_max=self.scenario_params['height'] - self.scenario_params['paddle_radius'],
+                        unit_speed_px=self.scenario_params['unit_speed_px']
+                    )
+                    action = policy.update(world_state)
+                    actions.append(action)
+                return np.array(actions, dtype=np.float32)
+        else:
+            return np.zeros((num_opponents, 2), dtype=np.float32)
+    
+#    def _compute_curriculum_reward(self, world_state_before: dict, world_state_after: dict,
+#                                actions: np.ndarray, prev_actions: np.ndarray,
+#                                base_reward: np.ndarray, phase_rewards: dict) -> np.ndarray:
+#        """
+#        Apply curriculum-specific reward shaping.
+#        
+#        BASE REWARDS HANDLE: Goals, approach, proximity, contact, shooting
+#        CURRICULUM ADDS: Only defensive positioning (conditional on puck location)
+#        """
+#        rewards = base_reward.copy()
+#        
+#        # Get defensive weights (only these should be non-zero!)
+#        w_defense = phase_rewards.get('defensive_position', 0.0)
+#        w_coverage = phase_rewards.get('center_coverage', 0.0)
+#        w_collision = phase_rewards.get('teammate_collision', 0.0)
+#        
+#        # Skip if no defensive rewards
+#        if w_defense == 0.0 and w_coverage == 0.0 and w_collision == 0.0:
+#            return rewards
+#        
+#        # Get world state
+#        puck_x = world_state_after['puck_x']
+#        puck_y = world_state_after['puck_y']
+#        half_line = self.env.engine.width / 2.0
+#        goal_center_y = self.env.engine.height / 2.0
+#        paddle_radius = self.env.engine.paddle_radius
+#        
+#        # ONLY apply when puck in defensive zone
+#        puck_in_defensive_zone = (puck_x < half_line)
+#        
+#        if not puck_in_defensive_zone:
+#            return rewards  # No curriculum rewards when attacking
+#        
+#        # === DEFENSIVE REWARDS (only when puck in own half) ===
+#        for i in range(self.config.num_agents_team_a):
+#            agent_x = world_state_after['agent_x'][i]
+#            agent_y = world_state_after['agent_y'][i]
+#            
+#            # 1. DEFENSIVE POSITION
+#            if w_defense > 0:
+#                if agent_x < puck_x:  # Between puck and own goal
+#                    ideal_x = puck_x * 0.3
+#                    ideal_y = puck_y
+#                    dist_from_ideal = np.hypot(agent_x - ideal_x, agent_y - ideal_y)
+#                    max_dist = 100.0
+#                    defensive_quality = max(0, 1.0 - (dist_from_ideal / max_dist))
+#                    rewards[i] += w_defense * defensive_quality
+#            
+#            # 2. CENTER COVERAGE
+#            if w_coverage > 0:
+#                dist_from_goal_center = abs(agent_y - goal_center_y)
+#                max_coverage_dist = self.env.engine.height / 3.0
+#                if agent_x < half_line * 0.6:  # In defensive third
+#                    coverage_quality = max(0, 1.0 - (dist_from_goal_center / max_coverage_dist))
+#                    rewards[i] += w_coverage * coverage_quality
+#            
+#            # 3. TEAMMATE COLLISION PENALTY
+#            if w_collision > 0:
+#                for j in range(i + 1, self.config.num_agents_team_a):
+#                    teammate_x = world_state_after['agent_x'][j]
+#                    teammate_y = world_state_after['agent_y'][j]
+#                    dist_to_teammate = np.hypot(agent_x - teammate_x, agent_y - teammate_y)
+#                    collision_threshold = paddle_radius * 2 + 10
+#                    if dist_to_teammate < collision_threshold:
+#                        collision_penalty = w_collision * (1.0 - dist_to_teammate / collision_threshold)
+#                        rewards[i] -= collision_penalty
+#                        rewards[j] -= collision_penalty
+#        
+#        return rewards
     
     def save_checkpoint_named(self, name: str):
-        """Save checkpoint with custom name"""
-        checkpoint_path = os.path.join(
-            self.config.checkpoint_dir,
-            f"curriculum_{name}.pt"
-        )
-        torch.save({
-            'name': name,
-            'phase': self.current_phase.name if self.current_phase else 'unknown',
+        """Save named checkpoint"""
+        checkpoint = {
             'model_state_dict': self.agent.state_dict(),
             'optimizer_state_dict': self.optimizer.state_dict(),
             'config': self.config,
-        }, checkpoint_path)
-        self.logger.info(f"Checkpoint saved: {checkpoint_path}")
+            'phase': self.current_phase.name,
+            'name': name,
+            'reward_normalizer_mean': self.reward_normalizer.mean,
+            'reward_normalizer_var': self.reward_normalizer.var,
+            'reward_normalizer_count': self.reward_normalizer.count,
+        }
+        path = f"{self.config.checkpoint_dir}/curriculum_{name}.pt"
+        torch.save(checkpoint, path)
+        self.logger.info(f"Checkpoint saved: {path}")
 
+
+# ============================================
+# MAIN
+# ============================================
 
 def main():
-    """Main curriculum training script"""
-    curriculum_config = "config/ppo_curriculum.yaml"
-    
+    # Scenario parameters
     scenario_params = {
         'width': 800,
         'height': 600,
@@ -531,7 +740,13 @@ def main():
         'puck_max_speed': 6,
     }
     
-    trainer = CurriculumTrainer(curriculum_config, scenario_params)
+    # Create curriculum trainer
+    trainer = CurriculumTrainer(
+        'config/ppo_curriculum.yaml',
+        scenario_params
+    )
+    
+    # Train
     trainer.train()
 
 

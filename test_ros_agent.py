@@ -82,10 +82,12 @@ class ROSAgentTester:
         self.visualize = visualize
         
         # Load agents
-        self.agents = self._load_agents()
-        self.num_agents = len(self.agents)
+        all_agents = self._load_agents()
         
-        # Create simulation
+        # ONLY use HALF the agents (Team A only)
+        self.num_agents = len(all_agents)
+        self.agents = all_agents        
+        # Create simulation WITH HALF-LINE POLICY ✓
         self.sim = BaseSimulation(view=visualize)
         
     def _load_agents(self) -> List:
@@ -115,10 +117,11 @@ class ROSAgentTester:
         if render is None:
             render = self.visualize
         
-        # Reset simulation
+        # Reset simulation WITH PROPER HALF-LINE ENFORCEMENT
         self.sim.reset_game(
             num_agents_team_a=self.num_agents,
             num_agents_team_b=self.num_agents,
+            half_line_policy='clamp',  # ← CRITICAL: Enforce half-line!
             **self.scenario_params
         )
         
@@ -149,7 +152,7 @@ class ROSAgentTester:
             # Combine all commands
             commands = team_a_actions + team_b_actions
             
-            # Step simulation
+            # Step simulation (half-line is enforced in engine.step())
             self.sim.apply_commands(commands)
             
             # Check for scoring

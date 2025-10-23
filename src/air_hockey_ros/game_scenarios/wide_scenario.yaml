@@ -1,0 +1,14 @@
+name: simple_scenario
+game_duration: 300
+table:
+  width: 1200
+  height: 320
+  goal_gap: 100
+  goal_offset: 65
+paddle:
+  unit_speed_px: 6
+  paddle_radius: 15
+puck:
+  puck_radius: 9
+  puck_max_speed: 10
+  friction_per_tick: 0.995

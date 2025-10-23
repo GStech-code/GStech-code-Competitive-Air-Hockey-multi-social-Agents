@@ -1,0 +1,12 @@
+static:
+  sim_name: base
+  view: true
+  log_game_manager: true
+
+games:
+  - repetition: 1
+    scenario_file: game_scenarios/wide_scenario.yaml
+    team_a_name: simple
+    team_b_name: simple
+    num_agents_team_a: 2
+    num_agents_team_b: 3

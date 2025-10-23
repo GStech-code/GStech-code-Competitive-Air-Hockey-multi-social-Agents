@@ -34,15 +34,6 @@ class SpotlightScheduler(threading.Thread):
             self._deadline_ns = now_ns() + self.st_budget_ns
             self._cv.notify()
 
-    def trigger_emergency(self):
-        """Called by ST planner: emergency spotlight until it clears itself."""
-        self.emergency_status = True
-        with self._cv:
-            self._cv.notify()
-
-    def get_emergency_func(self):
-        return self.trigger_emergency
-
     def shutdown(self):
         with self._cv:
             self._shutdown = True
@@ -56,19 +47,10 @@ class SpotlightScheduler(threading.Thread):
                 if self._shutdown:
                     return
                 mode = self._mode
-                deadline = self._deadline_ns
 
-            if self.emergency_status:
-                self.st.emergency_step()
-                with self._cv:
-                    self._mode = SpotlightMode.LT
-                self.emergency_status = False
-
-            elif mode == SpotlightMode.ST:
+            if mode == SpotlightMode.ST:
                 self.st.step()
-                if now_ns() >= deadline:
-                    with self._cv:
-                        self._mode = SpotlightMode.LT
+                self._mode = SpotlightMode.LT
 
             elif mode == SpotlightMode.LT:
                 self.lt.step()

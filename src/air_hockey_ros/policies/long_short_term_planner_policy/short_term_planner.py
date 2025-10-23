@@ -1,9 +1,7 @@
-from typing import Optional, Dict, Tuple
+from typing import Optional, Dict, Tuple, List
 from bus import Mailbox
+from short_term_objectives import Objective, OBJECTIVES_DICT, ObjectiveEnum
 
-Command = Tuple[int, int]
-
-# TODO: Proper implementation
 class ShortTermPlanner:
     """
     Stateless-ish ST that advances in tiny steps.
@@ -11,48 +9,25 @@ class ShortTermPlanner:
       - emergency_step  when in EMERGENCY spotlight
       - step()                during ST spotlight window
     """
-    def __init__(self, mailbox: Mailbox):
-        self.mailbox = mailbox
-        self.emergency_func = None
-        self.instruction: Optional[object] = None
-        self.world_state: Optional[Dict] = None
+    def __init__(self, agent_id, teammate_ids, mailbox: Mailbox,
+                 starting_objective_enum: ObjectiveEnum = ObjectiveEnum.DEFEND_LINE,
+                 **params):
+        self.latest_instruction = mailbox.latest_instruction
+        self.status_change_flag = mailbox.status_change_flag
+        self.latest_world_state = mailbox.latest_world_state
+        self.command = mailbox.command
 
-    def set_emergency_func(self, emergency_func):
-        self.emergency_func = emergency_func
+        self.current_objective_enum = starting_objective_enum
+        self.rules = params.get('rules', {})
+        self.objectives: List[Objective] = [objective_class(agent_id, teammate_ids,
+                                                            self.rules, **params.get(objective_enum, {}))
+                                            for objective_enum, objective_class in OBJECTIVES_DICT.items()]
+
 
     def step(self) -> None:
-        self.world_state = self.mailbox.latest_world_state.get()
-        change_flag = self.mailbox.status_change_flag.acknowledge()
-        if change_flag:
-            self.change_step()
-        else:
-            self.no_change_step()
+        if self.status_change_flag.acknowledge():
+            self.current_objective_enum = self.latest_instruction.get()
+        ws = self.latest_world_state.get()
+        cmd = self.objectives[self.current_objective_enum].step(ws)
+        self.command.set(cmd)
 
-    def change_step(self):
-        self.instruction = self.mailbox.latest_instruction.get()
-        self.mailbox.commands.push(self._compute_emergency_cmd())
-
-    def no_change_step(self):
-        if not self.world_state or self.mailbox.commands.is_full():
-            return
-        cmd = self._compute_cmd_fast()
-        self.mailbox.commands.push(cmd)
-
-    def emergency_step(self) -> None:
-        self.world_state = self.mailbox.latest_world_state.get()
-        change_flag = self.mailbox.status_change_flag.acknowledge()
-        if change_flag:
-            self.instruction = self.mailbox.latest_instruction.get()
-        self.mailbox.commands.clear()
-        self.mailbox.commands.push(self._compute_cmd_fast())
-
-    def set_emergency(self):
-        self.emergency_func()
-
-    def _compute_cmd_fast(self) -> Command:
-        # TODO: replace with your fast heuristic
-        return 0, 0
-
-    def _compute_emergency_cmd(self) -> Command:
-        # TODO: replace with emergency corrective action
-        return 0, 0

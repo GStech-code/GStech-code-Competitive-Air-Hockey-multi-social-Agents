@@ -1,0 +1,155 @@
+# config/ppo_curriculum.yaml - FIXED VERSION
+# Enhanced curriculum with proper stability measures
+
+# ============================================
+# SHARED CONFIGURATION
+# ============================================
+shared:
+  n_steps: 2048
+  batch_size: 64
+  n_epochs: 10
+  gamma: 0.99
+  gae_lambda: 0.95
+  clip_range: 0.2
+  clip_range_vf: 0.2  # ADD THIS - Critical for value stability!
+  vf_coef: 0.5
+  max_grad_norm: 0.5  # Keep strict gradient clipping
+  num_agents_team_a: 2
+  num_agents_team_b: 0  # Start with no opponents
+  device: "cpu"
+  hidden_dim: 128
+  log_interval: 5
+  save_interval: 25
+  checkpoint_dir: "checkpoints"
+  log_dir: "logs"
+
+# ============================================
+# PHASE 1: LEARN BASIC PUCK INTERACTION
+# ============================================
+# Goal: Agents learn that moving toward puck = good
+# Success criteria: Agents consistently approach puck
+phase_1:
+  name: "learn_hitting"
+  timesteps: 150000  # Increased for better learning
+  opponent_type: "static"
+  max_score: 100  # Don't end on goals
+  max_steps: 600  # Short episodes
+  learning_rate: 0.001
+  ent_coef: 0.20  # High exploration
+  clip_range: 0.3  # Allow more policy changes
+  
+  # Phase 1 relies on dense rewards from _compute_rewards()
+  # No additional curriculum rewards needed yet
+  rewards:
+    approach_puck_in_half: 0.0
+    close_to_puck: 0.0
+    puck_velocity_toward_goal: 0.0
+    defensive_position: 0.0
+    center_coverage: 0.0
+    action_penalty: 0.0
+    unnecessary_movement: 0.0
+    teammate_collision: 0.0
+
+# ============================================
+# PHASE 2: LEARN SHOOTING TOWARD GOAL
+# ============================================
+# Goal: Agents learn to hit puck toward opponent goal
+# Success criteria: Regular goals, good shot power
+phase_2:
+  name: "learn_shooting"
+  timesteps: 150000
+  opponent_type: "static"
+  max_score: 3  # End after scoring (fast feedback)
+  max_steps: 800  # Slightly longer
+  learning_rate: 0.0008  # Reduce LR
+  ent_coef: 0.15  # Less exploration
+  clip_range: 0.2
+  
+  rewards:
+    # Basic rewards from code:
+    # - Contact: 20
+    # - Shooting: up to 80
+    # - Goal: 1000 (shared)
+    approach_puck_in_half: 0.0
+    close_to_puck: 0.0
+    puck_velocity_toward_goal: 0.0
+    defensive_position: 0.0
+    center_coverage: 0.0
+    action_penalty: 0.0
+    unnecessary_movement: 0.0
+    teammate_collision: 0.1  # Small penalty
+
+# ============================================
+# PHASE 3: LEARN DEFENSE (ADD OPPONENT)
+# ============================================
+# Goal: Learn defensive positioning against simple AI
+# Success criteria: Positive win rate, good defense
+phase_3:
+  name: "learn_defense"
+  timesteps: 150000
+  opponent_type: "simple"  # Add simple opponent
+  max_score: 3
+  max_steps: 1200
+  learning_rate: 0.0005  # Further reduce
+  ent_coef: 0.10
+  clip_range: 0.2
+  
+  rewards:
+    approach_puck_in_half: 0.0
+    close_to_puck: 0.0
+    puck_velocity_toward_goal: 0.0
+    defensive_position: 0.1  # Start caring about position
+    center_coverage: 0.1
+    action_penalty: 0.0
+    unnecessary_movement: 0.0
+    teammate_collision: 0.2
+
+# ============================================
+# PHASE 3.5: INTERMEDIATE DIFFICULTY (NEW!)
+# ============================================
+# Goal: Bridge the gap between simple and mixed opponents
+# This phase prevents the catastrophic collapse seen in Phase 4
+phase_3_5:
+  name: "learn_tactics"
+  timesteps: 100000
+  opponent_type: "simple"  # Keep simple but longer episodes
+  max_score: 5
+  max_steps: 1500
+  learning_rate: 0.0003  # Lower LR for stability
+  ent_coef: 0.08
+  clip_range: 0.2
+  
+  rewards:
+    approach_puck_in_half: 0.0
+    close_to_puck: 0.0
+    puck_velocity_toward_goal: 0.0
+    defensive_position: 0.15
+    center_coverage: 0.15
+    action_penalty: 0.0001  # Small action penalty
+    unnecessary_movement: 0.002
+    teammate_collision: 0.3
+
+# ============================================
+# PHASE 4: FULL GAME (GRADUAL DIFFICULTY)
+# ============================================
+# Goal: Polish all skills against varied opponents
+# Success criteria: Consistent performance
+phase_4:
+  name: "full_game"
+  timesteps: 200000
+  opponent_type: "mixed"  # Mix of difficulties
+  max_score: 5
+  max_steps: 1800
+  learning_rate: 0.0002  # Very conservative LR
+  ent_coef: 0.05  # Low exploration (exploit learned skills)
+  clip_range: 0.15  # Tighter clipping for stability
+  
+  rewards:
+    approach_puck_in_half: 0.0
+    close_to_puck: 0.0
+    puck_velocity_toward_goal: 0.0
+    defensive_position: 0.2
+    center_coverage: 0.2
+    action_penalty: 0.0001
+    unnecessary_movement: 0.005
+    teammate_collision: 0.3

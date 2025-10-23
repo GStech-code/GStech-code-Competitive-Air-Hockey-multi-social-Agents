@@ -6,37 +6,37 @@ from .bus import Mailbox
 from .scheduler import SpotlightScheduler
 from .short_term_planner import ShortTermPlanner
 from .long_term_planner import LongTermPlanner
-from air_hockey_ros import TeamPolicy, register_policy, AgentPolicy
-
-Command = Tuple[int, int]
+from air_hockey_ros import AgentPolicy
+from .types import Command
 
 now_ns = time.monotonic_ns
 
-@register_policy("long_short_term_planner")
-class Policy3Layer(TeamPolicy):
+class LSAgentPolicy(AgentPolicy):
     """Pickle‑friendly: threads are created/started in on_agent_init()."""
 
-    def __init__(self, st_min_period_ms: int = 2, cmd_capacity: int = 32):
+    def __init__(self, agent_id, teammate_ids, st_min_period_ms: int = 2, cmd_capacity: int = 32,
+                 cmd_min_capacity: int = 2, **params):
+        super().__init__(agent_id)
+        self.teammate_ids = teammate_ids
         self.st_min_period_ms=st_min_period_ms
         self.cmd_capacity=cmd_capacity
+        self.cmd_min_capacity=cmd_min_capacity
         self._finalizer = None
         self._mailbox: Optional[Mailbox] = None
         self._scheduler: Optional[SpotlightScheduler] = None
         self._st: Optional[ShortTermPlanner] = None
         self._lt: Optional[LongTermPlanner] = None
         self._last_cmd: Command = (0, 0)
+        self.params = params
 
     # --- lifecycle hooks for DI environment ---
     def on_agent_init(self):
         if self._mailbox is not None:
             return
-        self._mailbox = Mailbox(cmd_capacity=self.cmd_capacity)
-        self._st = ShortTermPlanner(self._mailbox)
+        self._mailbox = Mailbox()
+        self._st = ShortTermPlanner(self.agent_id, self.teammate_ids, self._mailbox, **self.params)
         self._lt = LongTermPlanner(self._mailbox)
         self._scheduler = SpotlightScheduler(self._st, self._lt, st_budget_ms=self.st_min_period_ms)
-        emergency_func = self._scheduler.get_emergency_func()
-        self._st.set_emergency_func(emergency_func)
-        self._lt.set_emergency_func(emergency_func)
 
         self._scheduler.start()
         self._register_finalizers()
@@ -75,7 +75,8 @@ class Policy3Layer(TeamPolicy):
     @staticmethod
     def _finalize_static(self_ref):
         self = self_ref()
-        if not self: return
+        if not self:
+            return
         try:
             self._thread_shutdown()
             self._signal_shutdown()
@@ -83,7 +84,7 @@ class Policy3Layer(TeamPolicy):
             pass
 
     # --- Immediate layer: called at 30–60 Hz ---
-    def update(self, world_state: Dict) -> Tuple[int, int]:
+    def update(self, world_state: Dict) -> Command:
         if self._mailbox is None:
             self.on_agent_init()
 
@@ -92,17 +93,9 @@ class Policy3Layer(TeamPolicy):
 
         # publish latest frame (peeked by ST/LT)
         self._mailbox.latest_world_state.set(world_state)
-        if self._scheduler.emergency_status:
-            return 0, 0  # TODO: Decide if to send (0, 0) or last_cmd or commands.pop
         self._scheduler.trigger_st_cycle()
-
-        # pop next command if available, otherwise (0,0)
-        cmd = self._mailbox.commands.pop() or (0, 0)
-        self._last_cmd = cmd
-        return cmd
-
-    def last_cmd(self) -> Command:
-        return self._last_cmd
+        # pop next command if available, otherwise last cmd
+        return self._mailbox.command.get() or self._last_cmd
 
     # --- make pickling safe (threads are not pickled) ---
     def __getstate__(self):
