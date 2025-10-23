@@ -1,2 +1,2 @@
 from .simple_policy import SimpleTeamPolicy, SimpleCrosserAgentPolicy, SimpleRegionalAgentPolicy
-from .neural_network_policy import NeuralAgentPolicy, NeuralTeamPolicy, TeamPPOWrapper
+from .five_neural_network_policy import NeuralAgentPolicy, NeuralTeamPolicy, TeamPPOWrapper

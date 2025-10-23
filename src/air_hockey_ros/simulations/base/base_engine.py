@@ -104,7 +104,7 @@ class BaseEngine:
         self.hold_last_ticks = int(params.get("hold_last_ticks", 2))
         self.stuck_window = int(params.get("stuck_window", 60))
         self.puck_max_speed = float(params.get("puck_max_speed", 6.0))
-        self.stuck_px_boundary = float(params.get("stuck_px_boundary", 20.0))
+        self.stuck_px_boundary = self.paddle_radius + self.unit_speed_px + 1
 
         if self.jitter_seed is not None:
             self._rng = random.Random(self.jitter_seed)

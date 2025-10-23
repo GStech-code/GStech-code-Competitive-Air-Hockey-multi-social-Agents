@@ -4,7 +4,7 @@ from .neural_agent_policy import NeuralAgentPolicy
 import os
 import torch
 
-@register_policy('neural')
+@register_policy('five_neural')
 class NeuralTeamPolicy(TeamPolicy):
     def __init__(self, **params):
         super().__init__(**params)
