@@ -26,11 +26,6 @@ class PassShot(Objective):
         self.half_unit = self.unit * 0.5
         self.x_home = self.width * 0.45  # central stance, slightly defensive
 
-        # factors
-        self.teamwork_bias = params.get("teamwork_bias", 0.7)
-        self.risk_tolerance = params.get("risk_tolerance", 0.4)
-        self.pass_accuracy = params.get("pass_accuracy", 0.8)
-
         # short memory
         self._hit_d2 = self.paddle_r + self.puck_r + (self.unit * 2)
         self._low_wall = self.puck_r

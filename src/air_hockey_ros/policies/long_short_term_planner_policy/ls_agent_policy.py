@@ -1,42 +1,106 @@
-from typing import Dict, Tuple, Optional
-import time
+# ls_agent_policy.py
+from typing import Dict, Tuple, Optional, List
 import atexit
 import weakref
 from .bus import Mailbox
 from .scheduler import SpotlightScheduler
 from .short_term_planner import ShortTermPlanner
+from .short_term_objectives import ObjectiveEnum, OBJECTIVE_ENUMS
+from .short_policy_chooser import ShortPolicyChooser
+from .objective_producer import ObjectivesProducer
+from .short_agent_policy import ShortAgentPolicy
 from .long_term_planner import LongTermPlanner
 from air_hockey_ros import AgentPolicy
 from .types import Command
 
-now_ns = time.monotonic_ns
+OFFENSIVE_FACTORS = [0.4, 0.5, 0.6, 0.7]
 
 class LSAgentPolicy(AgentPolicy):
     """Pickle‑friendly: threads are created/started in on_agent_init()."""
-
-    def __init__(self, agent_id, teammate_ids, st_min_period_ms: int = 2, cmd_capacity: int = 32,
-                 cmd_min_capacity: int = 2, **params):
+    def __init__(self, agent_id: int,
+                 team: str,
+                 num_valid_agents: int,
+                 num_agents_team_a: int,
+                 num_agents_team_b: int,
+                 rules: Dict,
+                 starter_objective: ObjectiveEnum = ObjectiveEnum.DEFEND_LINE,
+                 ):
         super().__init__(agent_id)
-        self.teammate_ids = teammate_ids
-        self.st_min_period_ms=st_min_period_ms
-        self.cmd_capacity=cmd_capacity
-        self.cmd_min_capacity=cmd_min_capacity
+        self.team = team
+        self.num_valid_agents = num_valid_agents
+        self.num_agents_team_a = num_agents_team_a
+        self.num_agents_team_b = num_agents_team_b
+        self.rules = rules
+        self.width = float(rules.get('width', 800))
+        self.team_a_agents = [aid for aid in range(num_agents_team_a)]
+        self.team_a_teammates = [[id for id in self.team_a_agents if id != current_agent]
+                              for current_agent in self.team_a_agents]
+        self.team_b_agents = [aid for aid in range(num_agents_team_a, num_agents_team_a + num_agents_team_b)]
+        self.team_b_teammates = [[id for id in self.team_b_agents if id != current_agent]
+                            for current_agent in self.team_b_agents]
+        self.team_a_objectives_producer = ObjectivesProducer(agents_ids=self.team_a_agents,
+                                                             num_valid_agents=num_valid_agents,
+                                                             teammate_ids=self.team_a_teammates, **self.rules)
+        self.team_b_objectives_producer = ObjectivesProducer(agents_ids=self.team_b_agents,
+                                                             num_valid_agents=num_valid_agents,
+                                                             teammate_ids=self.team_b_teammates, **self.rules)
+        self.starter_objective = starter_objective
         self._finalizer = None
         self._mailbox: Optional[Mailbox] = None
         self._scheduler: Optional[SpotlightScheduler] = None
         self._st: Optional[ShortTermPlanner] = None
         self._lt: Optional[LongTermPlanner] = None
-        self._last_cmd: Command = (0, 0)
-        self.params = params
 
     # --- lifecycle hooks for DI environment ---
     def on_agent_init(self):
         if self._mailbox is not None:
             return
         self._mailbox = Mailbox()
-        self._st = ShortTermPlanner(self.agent_id, self.teammate_ids, self._mailbox, **self.params)
-        self._lt = LongTermPlanner(self._mailbox)
-        self._scheduler = SpotlightScheduler(self._st, self._lt, st_budget_ms=self.st_min_period_ms)
+        self._mailbox.command.set((0, 0))
+        team_a_valid_objectives = self.team_a_objectives_producer.produce_valid_objectives()
+        team_b_valid_objectives = self.team_b_objectives_producer.produce_valid_objectives()
+
+        if self.team == 'A':
+            team_objectives = team_a_valid_objectives
+        else:
+            team_objectives = team_b_valid_objectives
+
+        own_objectives = [team_objectives[(self.agent_id, enum)] for enum in OBJECTIVE_ENUMS]
+        self._st = ShortTermPlanner(mailbox=self._mailbox, objectives=own_objectives,
+                                    starter_objective=self.starter_objective)
+
+        team_a_valid_policies = {id_enum: ShortAgentPolicy(agent_id=id_enum[0],
+                                                           objective_insert=objective)
+                                 for id_enum, objective in team_a_valid_objectives.items()}
+
+        team_a_policies_chooser = ShortPolicyChooser(agent_ids=self.team_a_agents, width=self.width,
+                                                    offensive_factors=OFFENSIVE_FACTORS,
+                                                    short_term_policies=team_a_valid_policies)
+
+        team_b_valid_policies = {id_enum: ShortAgentPolicy(agent_id=id_enum[0],
+                                                           objective_insert=objective)
+                                 for id_enum, objective in team_b_valid_objectives.items()}
+
+        team_b_policies_chooser = ShortPolicyChooser(agent_ids=self.team_b_agents, width=self.width,
+                                                     offensive_factors=OFFENSIVE_FACTORS,
+                                                     short_term_policies=team_b_valid_policies)
+
+
+        team_a_pass_policies = {aid: ShortAgentPolicy(agent_id=aid, objective_insert=objective)
+                         for aid, objective in self.team_a_objectives_producer.produce_pass_objectives().items()}
+
+        team_b_pass_policies = {aid: ShortAgentPolicy(agent_id=aid, objective_insert=objective)
+                         for aid, objective in self.team_b_objectives_producer.produce_pass_objectives().items()}
+
+        self._lt = LongTermPlanner(num_agents_team_a=self.num_agents_team_a,
+                                   num_agents_team_b=self.num_agents_team_b,
+                                   mailbox=self._mailbox,
+                                   team_a_policies_chooser=team_a_policies_chooser,
+                                   team_b_policies_chooser=team_b_policies_chooser,
+                                   team_a_pass_policies=team_a_pass_policies,
+                                   team_b_pass_policies=team_b_pass_policies,
+                                   rules=self.rules)
+        self._scheduler = SpotlightScheduler(self._st, self._lt)
 
         self._scheduler.start()
         self._register_finalizers()
@@ -89,13 +153,13 @@ class LSAgentPolicy(AgentPolicy):
             self.on_agent_init()
 
         if not self._scheduler or not self._scheduler.is_alive():
-            return self._last_cmd
+            return 0, 0
 
         # publish latest frame (peeked by ST/LT)
         self._mailbox.latest_world_state.set(world_state)
         self._scheduler.trigger_st_cycle()
         # pop next command if available, otherwise last cmd
-        return self._mailbox.command.get() or self._last_cmd
+        return self._mailbox.command.get()
 
     # --- make pickling safe (threads are not pickled) ---
     def __getstate__(self):

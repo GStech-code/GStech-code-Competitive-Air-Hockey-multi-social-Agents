@@ -9,19 +9,15 @@ class ShortTermPlanner:
       - emergency_step  when in EMERGENCY spotlight
       - step()                during ST spotlight window
     """
-    def __init__(self, agent_id, teammate_ids, mailbox: Mailbox,
-                 starting_objective_enum: ObjectiveEnum = ObjectiveEnum.DEFEND_LINE,
-                 **params):
+    def __init__(self, mailbox: Mailbox, objectives: List[Objective],
+                 starter_objective: ObjectiveEnum = ObjectiveEnum.DEFEND_LINE):
         self.latest_instruction = mailbox.latest_instruction
         self.status_change_flag = mailbox.status_change_flag
         self.latest_world_state = mailbox.latest_world_state
         self.command = mailbox.command
 
-        self.current_objective_enum = starting_objective_enum
-        self.rules = params.get('rules', {})
-        self.objectives: List[Objective] = [objective_class(agent_id, teammate_ids,
-                                                            self.rules, **params.get(objective_enum, {}))
-                                            for objective_enum, objective_class in OBJECTIVES_DICT.items()]
+        self.current_objective_enum = starter_objective
+        self.objectives = objectives
 
 
     def step(self) -> None:

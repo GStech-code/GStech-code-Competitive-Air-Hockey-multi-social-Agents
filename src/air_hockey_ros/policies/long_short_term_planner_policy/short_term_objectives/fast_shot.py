@@ -23,15 +23,12 @@ class FastShot(Objective):
         half_goal_gap = rules.get("goal_gap", 200) * 0.5
 
         # --- Single parameter: strike lane ---
-        goal_gap_offest = params.get("goal_gap_offest", 0.6)
         wall_pad_add = params.get("wall_padding_add", 2)
 
         # --- Strike Y targets (inside the goal mouth) ---
         self.lane_center = height * 0.5
         self.goal_min = self.lane_center - half_goal_gap
         self.goal_max = self.lane_center + half_goal_gap
-        half_goal_gap_offset = half_goal_gap * goal_gap_offest
-
 
         # --- Contact windows & pads ---
         self._hit_d = self.paddle_radius + self.puck_radius + self.unit
@@ -42,7 +39,7 @@ class FastShot(Objective):
 
         # --- Geometry constants ---
         self._half_line = width * 0.5
-        self.enforcement_line = width * 0.375
+        self.enforcement_line = params.get('enforcement_line', width * 0.375)
         self.quarter_line = width * 0.25
         self.x_goal = width - self.puck_radius
         self._fence_x = self._half_line - self.unit  # “safe” x we aim to stay ≤

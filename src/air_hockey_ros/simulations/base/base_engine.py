@@ -125,13 +125,7 @@ class BaseEngine:
         self.agent_vy = [0.0] * self.num_agents
         self._prev_agent_x = [0.0] * self.num_agents
         self._prev_agent_y = [0.0] * self.num_agents
-        self._idx_x = list(range(self.num_agents))
-        self._idx_x.sort(key=lambda i: self.agent_x[i])
         self.agent_team = [0] * int(num_agents_team_a) + [1] * int(num_agents_team_b)
-        self.agent_last_cmd_tick = [-10**9] * self.num_agents  # far in the past
-        self.puck_x_history.clear_and_re_capacity(self.stuck_window)
-        self.puck_y_history.clear_and_re_capacity(self.stuck_window)
-        self.puck_velocity_history.clear_and_re_capacity(self.stuck_window)
 
         if self.num_agents > 1:
             self._repair_x_index_func = self._repair_x_index
@@ -169,10 +163,26 @@ class BaseEngine:
             self.puck_vx = 0.0
             self.puck_vy = 0.0
 
-        self.last_puck_x = self.puck_x
-        self.last_puck_y = self.puck_y
         self.team_a_score = 0
         self.team_b_score = 0
+
+        self.sub_reset()
+
+    def sub_reset(self):
+        for i, val in enumerate(self.agent_x):
+            self._prev_agent_x[i] = val
+        for i, val in enumerate(self.agent_y):
+            self._prev_agent_y[i] = val
+
+        self.last_puck_x = self.puck_x
+        self.last_puck_y = self.puck_y
+
+        self._idx_x = list(range(self.num_agents))
+        self._idx_x.sort(key=lambda i: self.agent_x[i])
+        self.agent_last_cmd_tick = [-10 ** 9] * self.num_agents  # far in the past
+        self.puck_x_history.clear_and_re_capacity(self.stuck_window)
+        self.puck_y_history.clear_and_re_capacity(self.stuck_window)
+        self.puck_velocity_history.clear_and_re_capacity(self.stuck_window)
         self.tick = 0
 
     def _enforce_bounds_and_halfline(self) -> None:
@@ -262,6 +272,17 @@ class BaseEngine:
             "agent_x": self.agent_x[:],
             "agent_y": self.agent_y[:],
         }
+
+    def load_world_state(self, world_state: Dict) -> None:
+        self.team_a_score = world_state["team_a_score"]
+        self.team_b_score = world_state["team_b_score"]
+        self.puck_x = world_state["puck_x"]
+        self.puck_y = world_state["puck_y"]
+        self.puck_vx = world_state["puck_vx"]
+        self.puck_vy = world_state["puck_vy"]
+        self.agent_x = world_state["agent_x"]
+        self.agent_y = world_state["agent_y"]
+        self.sub_reset()
 
     def get_scores(self) -> Dict:
         return {"team_a_score": self.team_a_score, "team_b_score": self.team_b_score}

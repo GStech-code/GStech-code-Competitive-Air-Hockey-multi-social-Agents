@@ -29,6 +29,9 @@ class BaseSimulation(Simulation):
     def get_world_state(self) -> Dict:
         return self.engine.get_world_state()
 
+    def load_world_state(self, world_state: Dict) -> None:
+        self.engine.load_world_state(world_state)
+
     def _draw(self):
         self._py_view.draw(self.engine.get_world_state())
 

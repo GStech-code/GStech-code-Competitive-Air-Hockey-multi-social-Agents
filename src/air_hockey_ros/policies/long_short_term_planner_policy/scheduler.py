@@ -1,7 +1,6 @@
 import threading
-import time
-
-now_ns = time.monotonic_ns
+from short_term_planner import ShortTermPlanner
+from long_term_planner import LongTermPlanner
 
 class SpotlightMode:
     IDLE = 0   # nothing to do
@@ -15,14 +14,12 @@ class SpotlightScheduler(threading.Thread):
     - Spotlight toggles between ST and LT.
     - Emergency spotlight lets ST preempt everything until it clears.
     """
-    def __init__(self, st, lt, st_budget_ms=2):
+    def __init__(self, st: ShortTermPlanner, lt: LongTermPlanner):
         super().__init__(daemon=True, name="Scheduler")
         self.st = st
         self.lt = lt
-        self.st_budget_ns = int(st_budget_ms * 1e6)
 
         self._mode = SpotlightMode.LT
-        self._deadline_ns = 0
         self.emergency_status = False
         self._cv = threading.Condition()
         self._shutdown = False
@@ -31,7 +28,6 @@ class SpotlightScheduler(threading.Thread):
         """Called by Policy.update(): start a short-term spotlight window."""
         with self._cv:
             self._mode = SpotlightMode.ST
-            self._deadline_ns = now_ns() + self.st_budget_ns
             self._cv.notify()
 
     def shutdown(self):
@@ -51,6 +47,7 @@ class SpotlightScheduler(threading.Thread):
             if mode == SpotlightMode.ST:
                 self.st.step()
                 self._mode = SpotlightMode.LT
+                self.lt.new_ws_step()
 
             elif mode == SpotlightMode.LT:
                 self.lt.step()
