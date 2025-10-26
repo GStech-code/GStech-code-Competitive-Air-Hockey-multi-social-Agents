@@ -42,6 +42,7 @@ class FastShot(Objective):
         self.enforcement_line = params.get('enforcement_line', width * 0.375)
         self.quarter_line = width * 0.25
         self.x_goal = width - self.puck_radius
+        self.opponent_fence_x = self._half_line + self.unit
         self._fence_x = self._half_line - self.unit  # “safe” x we aim to stay ≤
 
         puck_max_speed = rules.get("puck_max_speed", 6)
@@ -158,7 +159,7 @@ class FastShot(Objective):
             return ux, uy
 
 
-        if px >= self._half_line:
+        if px >= self.opponent_fence_x:
             # Never cross half-line; if we drifted over, pull back once, else hold x.
             ux = -1 if ax > self._fence_x else 0
             # -------- 2) Enemy half & going to enemy goal (pvx>0) --------

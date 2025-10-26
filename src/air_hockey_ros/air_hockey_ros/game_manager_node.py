@@ -243,6 +243,9 @@ class GameManagerNode(Node):
         # Launch agents
         self.agent_procs.create_agent_processes(agents_args)
 
+        # Delay game activation to give the agents time to start
+        time.sleep(2)
+
         # inform simulation about new game
         self.sim.reset_game(num_agents_team_a=num_agents_team_a, num_agents_team_b=num_agents_team_b, **rules)
         self.sim_width, self.sim_height = self.sim.get_table_sizes()

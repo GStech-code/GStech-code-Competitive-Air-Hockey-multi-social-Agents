@@ -1,0 +1,14 @@
+name: large_scenario
+game_duration: 150
+table:
+  width: 1450
+  height: 950
+  goal_gap: 400
+  goal_offset: 80
+paddle:
+  unit_speed_px: 9
+  paddle_radius: 33
+puck:
+  puck_radius: 22
+  puck_max_speed: 15
+  friction_per_tick: 0.995

@@ -19,7 +19,7 @@ class LSAgentPolicy(AgentPolicy):
     """Pickle‑friendly: threads are created/started in on_agent_init()."""
     def __init__(self, agent_id: int,
                  team: str,
-                 num_valid_agents: int,
+                 max_num_valid_agents: int,
                  num_agents_team_a: int,
                  num_agents_team_b: int,
                  rules: Dict,
@@ -27,7 +27,7 @@ class LSAgentPolicy(AgentPolicy):
                  ):
         super().__init__(agent_id)
         self.team = team
-        self.num_valid_agents = num_valid_agents
+        self.max_num_valid_agents = max_num_valid_agents
         self.num_agents_team_a = num_agents_team_a
         self.num_agents_team_b = num_agents_team_b
         self.rules = rules
@@ -39,10 +39,10 @@ class LSAgentPolicy(AgentPolicy):
         self.team_b_teammates = [[id for id in self.team_b_agents if id != current_agent]
                             for current_agent in self.team_b_agents]
         self.team_a_objectives_producer = ObjectivesProducer(agents_ids=self.team_a_agents,
-                                                             num_valid_agents=num_valid_agents,
+                                                             num_valid_agents=max_num_valid_agents,
                                                              teammate_ids=self.team_a_teammates, **self.rules)
         self.team_b_objectives_producer = ObjectivesProducer(agents_ids=self.team_b_agents,
-                                                             num_valid_agents=num_valid_agents,
+                                                             num_valid_agents=max_num_valid_agents,
                                                              teammate_ids=self.team_b_teammates, **self.rules)
         self.starter_objective = starter_objective
         self._finalizer = None
@@ -73,7 +73,7 @@ class LSAgentPolicy(AgentPolicy):
                                                            objective_insert=objective)
                                  for id_enum, objective in team_a_valid_objectives.items()}
 
-        team_a_policies_chooser = ShortPolicyChooser(agent_ids=self.team_a_agents,
+        team_a_policies_chooser = ShortPolicyChooser(agent_ids=self.team_a_agents[:self.max_num_valid_agents],
                                                      is_team_a=True,
                                                      width=self.width,
                                                      offensive_factors=OFFENSIVE_FACTORS,
@@ -83,7 +83,7 @@ class LSAgentPolicy(AgentPolicy):
                                                            objective_insert=objective)
                                  for id_enum, objective in team_b_valid_objectives.items()}
 
-        team_b_policies_chooser = ShortPolicyChooser(agent_ids=self.team_b_agents,
+        team_b_policies_chooser = ShortPolicyChooser(agent_ids=self.team_b_agents[:self.max_num_valid_agents],
                                                      is_team_a=False,
                                                      width=self.width,
                                                      offensive_factors=OFFENSIVE_FACTORS,

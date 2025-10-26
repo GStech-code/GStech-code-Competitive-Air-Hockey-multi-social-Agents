@@ -36,7 +36,7 @@ class LongShortTeamPolicy(TeamPolicy):
 
     def get_policies(self) -> List[AgentPolicy]:
         policies = [LSAgentPolicy(agent_id=agent_id, team=self.team,
-                                  num_valid_agents=self.num_valid_agents,
+                                  max_num_valid_agents=VALID_AGENTS,
                                   num_agents_team_a=self.num_agents_team_a,
                                   num_agents_team_b=self.num_agents_team_b,
                                   rules=self.rules,

@@ -50,8 +50,8 @@ def _build_actions(context, *args, **kwargs):
     rules_dict = _flatten_rules(scn)
     rules_json = json.dumps(rules_dict, separators=(",", ":"))
 
-    team_a = "short"
-    team_b = "simple"
+    team_a = "long_short"
+    team_b = "regional_simple"
     num_a = 2
     num_b = 2
 

@@ -7,7 +7,7 @@ class ObjectivesProducer:
     def __init__(self, agents_ids: List[int], num_valid_agents: int, teammate_ids: List[List[int]], **rules):
         self.agent_ids = agents_ids
         self.num_agents = len(agents_ids)
-        self.num_valid_agents = num_valid_agents
+        self.num_valid_agents = min(self.num_agents, num_valid_agents)
         self.teammate_ids = teammate_ids
         self.rules = rules
         width = rules.get('width', 800)

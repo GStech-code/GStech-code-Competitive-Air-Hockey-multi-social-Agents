@@ -7,7 +7,7 @@ from .uct_planning import RosMock, UCTHeuristic, UCTPlanner
 from simulations import BaseSimulation
 from .short_term_objectives import ObjectiveEnum, OBJECTIVE_COMBINATIONS
 
-NUMBER_OF_PLANNING_STEPS = 32
+NUMBER_OF_PLANNING_STEPS = 4
 MAX_LS_AGENTS = 4  # only first 4 are long-short; others are PASS_SHOT
 
 # Internal tuning: how much UCT thinking to do per call (can be time budgets if you prefer)
@@ -35,7 +35,7 @@ class LongTermPlanner:
 
         self.mailbox = mailbox
         self.rules = dict(rules or {})
-        self.rules['stuck_window'] = self.rules.get('stuck_window', 30)
+        self.rules['stuck_window'] = self.rules.get('stuck_window', 2)
         self.rules['hold_last_ticks'] = self.rules.get('hold_last_ticks', 0)
 
         # sim & mock
@@ -46,8 +46,8 @@ class LongTermPlanner:
 
         self.teamA: List[int] = [aid for aid in range(num_agents_team_a)]
         self.teamB: List[int] = [aid for aid in range(num_agents_team_a, num_agents_team_a + num_agents_team_b)]
-        self.lsA = min(MAX_LS_AGENTS, len(self.teamA))
-        self.lsB = min(MAX_LS_AGENTS, len(self.teamB))
+        self.lsA = min(MAX_LS_AGENTS, num_agents_team_a)
+        self.lsB = min(MAX_LS_AGENTS, num_agents_team_b)
 
         # choosers
         self.team_a_chooser = team_a_policies_chooser

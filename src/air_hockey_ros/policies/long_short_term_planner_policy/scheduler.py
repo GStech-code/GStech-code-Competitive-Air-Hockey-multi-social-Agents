@@ -1,6 +1,6 @@
 import threading
-from short_term_planner import ShortTermPlanner
-from long_term_planner import LongTermPlanner
+from .short_term_planner import ShortTermPlanner
+from .long_term_planner import LongTermPlanner
 
 class SpotlightMode:
     IDLE = 0   # nothing to do
@@ -19,7 +19,7 @@ class SpotlightScheduler(threading.Thread):
         self.st = st
         self.lt = lt
 
-        self._mode = SpotlightMode.LT
+        self._mode = SpotlightMode.IDLE
         self.emergency_status = False
         self._cv = threading.Condition()
         self._shutdown = False
