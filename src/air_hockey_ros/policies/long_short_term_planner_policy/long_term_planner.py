@@ -1,6 +1,5 @@
 # long_term_planner.py
-# TODO: Keep changing
-from typing import Dict, Tuple, List, Sequence
+from typing import Dict, Tuple, List
 from .bus import Mailbox
 from .short_policy_chooser import ShortPolicyChooser
 from .short_agent_policy import ShortAgentPolicy
@@ -26,7 +25,7 @@ class LongTermPlanner:
       • step() — may be called 0..many times between updates:
           - does *extra* UCT thinking only (no counter change, no publishing)
     """
-    def __init__(self, num_agents_team_a: int, num_agents_team_b: int,
+    def __init__(self, agent_id: int, team: str, num_agents_team_a: int, num_agents_team_b: int,
                  mailbox: Mailbox,
                  team_a_policies_chooser: ShortPolicyChooser,
                  team_b_policies_chooser: ShortPolicyChooser,
@@ -83,14 +82,10 @@ class LongTermPlanner:
         self.uct_heuristic = UCTHeuristic(team_a_agent_ids=self.teamA,
                                           team_b_agent_ids=self.teamB,
                                           **self.rules)
-        def combos_fn(is_team_a: bool):
-            """Return all candidate combos for the LS subset of this team."""
-            ls = self.lsA if is_team_a else self.lsB
-            if ls <= 0:
-                return []  # no LS agents
-            return [combo for combo in OBJECTIVE_COMBINATIONS.get(ls, [])]
 
-        def assign_fn(ws: Dict, is_team_a: bool, agent_ids: Sequence[int], combo: Tuple[ObjectiveEnum, ...]):
+        team_a_combinations = OBJECTIVE_COMBINATIONS.get(self.lsA, [])
+        team_b_combinations = OBJECTIVE_COMBINATIONS.get(self.lsB, [])
+        def assign_fn(ws: Dict, is_team_a: bool, agent_ids: List[int], combo: Tuple[ObjectiveEnum, ...]):
             assign: Dict[int, ObjectiveEnum] = {}
 
             agents_x: List[float] = ws["agent_x"]
@@ -103,26 +98,25 @@ class LongTermPlanner:
                 # chooser returns mapping for all its known agents; filter to LS ids
                 full_map = chooser.choose_objectives(agents_x, list(combo))  # {aid: enum}
                 for aid in ls_ids:
-                    if aid in full_map:
-                        assign[aid] = full_map[aid]
+                    assign[aid] = full_map[aid]
 
             for aid in tail_ids:
                 assign[aid] = ObjectiveEnum.PASS_SHOT
 
-            for aid in ls_ids:
-                if aid not in assign:
-                    assign[aid] = ObjectiveEnum.DEFEND_LINE
-
             return assign
 
         # ---- UCT instance ----
-        self._ws_count: int = 0
+        is_team_a = team == 'A'
         self._steps_left_in_cycle: int = NUMBER_OF_PLANNING_STEPS
+        self.is_root_change = False
         self.uct_planner = UCTPlanner(
+            is_team_a=is_team_a,
+            agent_id=agent_id,
             number_of_planning_steps=NUMBER_OF_PLANNING_STEPS,
             ros_mock=self.ros_mock,
             heuristic=self.uct_heuristic,
-            combos_fn=combos_fn,
+            team_a_combinations=team_a_combinations,
+            team_b_combinations=team_b_combinations,
             assign_fn=assign_fn,
             policy_matrix=self.policy_matrix,
             team_a_agents=self.teamA,
@@ -134,31 +128,26 @@ class LongTermPlanner:
         ws = self.mailbox.latest_world_state.get()
         if ws is None:
             return
-
-        # bump WS frame id
-        self._ws_count += 1
-
-        # keep current cycle budget for the root (first time = 32)
-        self.uct_planner.update_world_state(
-            ws,
-            ws_count=self._ws_count,
-            steps_left_in_cycle=self._steps_left_in_cycle,
-        )
-
-        # exactly ONE UCT expansion this update
-        a_assign, b_assign = self.uct_planner.expand_once()
-
-        # consume one tick of the cycle AFTER using the leftover at root
+        # consume one tick of the cycle before using the leftover at root
         self._steps_left_in_cycle -= 1
 
+        if self.is_root_change:
+            self.uct_planner.commit_root_choice()  # reuse subtree next cycle
+            self.is_root_change = False
+
+        # keep current cycle budget for the root (first time = 32)
+        self.uct_planner.update_world_state(ws)
+        # exactly ONE UCT expansion this update
+        self.mailbox.latest_instruction.set(self.uct_planner.expand_once())
         # publish & commit at cycle boundary
         if self._steps_left_in_cycle <= 0:
-            self.change_instruction((a_assign, b_assign))  # publish once per cycle
-            self.uct_planner.commit_root_choice()  # reuse subtree next cycle
+            self.mailbox.status_change_flag.inform()  # inform once per cycle
+            self.is_root_change = True
             self._steps_left_in_cycle = NUMBER_OF_PLANNING_STEPS  # reset to 32
 
+
     def step(self) -> None:
-        self.uct_planner.expand_once()
+        self.mailbox.latest_instruction.set(self.uct_planner.expand_once())
 
     def change_instruction(self, instruction):
         self.mailbox.latest_instruction.set(instruction)

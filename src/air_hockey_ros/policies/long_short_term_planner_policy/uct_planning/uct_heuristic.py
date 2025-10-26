@@ -14,8 +14,7 @@ class UCTHeuristic:
       3) Near-term goal chance vs. being blocked (with simple bounce + reachability)
     """
 
-    def __init__(self,
-                 team_a_agent_ids: List[int], team_b_agent_ids: List[int], **params):
+    def __init__(self, team_a_agent_ids: List[int], team_b_agent_ids: List[int], **params):
         self.A = team_a_agent_ids
         self.len_a = len(team_a_agent_ids)
         self.B = team_b_agent_ids

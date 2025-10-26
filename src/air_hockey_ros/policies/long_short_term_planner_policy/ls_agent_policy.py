@@ -73,15 +73,19 @@ class LSAgentPolicy(AgentPolicy):
                                                            objective_insert=objective)
                                  for id_enum, objective in team_a_valid_objectives.items()}
 
-        team_a_policies_chooser = ShortPolicyChooser(agent_ids=self.team_a_agents, width=self.width,
-                                                    offensive_factors=OFFENSIVE_FACTORS,
-                                                    short_term_policies=team_a_valid_policies)
+        team_a_policies_chooser = ShortPolicyChooser(agent_ids=self.team_a_agents,
+                                                     is_team_a=True,
+                                                     width=self.width,
+                                                     offensive_factors=OFFENSIVE_FACTORS,
+                                                     short_term_policies=team_a_valid_policies)
 
         team_b_valid_policies = {id_enum: ShortAgentPolicy(agent_id=id_enum[0],
                                                            objective_insert=objective)
                                  for id_enum, objective in team_b_valid_objectives.items()}
 
-        team_b_policies_chooser = ShortPolicyChooser(agent_ids=self.team_b_agents, width=self.width,
+        team_b_policies_chooser = ShortPolicyChooser(agent_ids=self.team_b_agents,
+                                                     is_team_a=False,
+                                                     width=self.width,
                                                      offensive_factors=OFFENSIVE_FACTORS,
                                                      short_term_policies=team_b_valid_policies)
 
@@ -92,7 +96,9 @@ class LSAgentPolicy(AgentPolicy):
         team_b_pass_policies = {aid: ShortAgentPolicy(agent_id=aid, objective_insert=objective)
                          for aid, objective in self.team_b_objectives_producer.produce_pass_objectives().items()}
 
-        self._lt = LongTermPlanner(num_agents_team_a=self.num_agents_team_a,
+        self._lt = LongTermPlanner(agent_id=self.agent_id,
+                                   team=self.team,
+                                   num_agents_team_a=self.num_agents_team_a,
                                    num_agents_team_b=self.num_agents_team_b,
                                    mailbox=self._mailbox,
                                    team_a_policies_chooser=team_a_policies_chooser,

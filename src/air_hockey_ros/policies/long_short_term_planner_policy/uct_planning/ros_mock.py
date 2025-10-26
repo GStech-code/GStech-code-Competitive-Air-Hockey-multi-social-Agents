@@ -83,9 +83,10 @@ class RosMock:
 
     def load_world_state(self, world_state: Dict):
         self.sim.load_world_state(world_state)
+
     def get_world_state(self):
         return self.sim.get_world_state()
-    def step(self) -> Dict:
+    def step(self) -> None:
         """
         One “tick”:
           1) Read world_state from sim.
@@ -129,4 +130,3 @@ class RosMock:
 
         # Apply to sim and return the new state
         self.sim.apply_commands(cmds)
-        return self.sim.get_world_state()
