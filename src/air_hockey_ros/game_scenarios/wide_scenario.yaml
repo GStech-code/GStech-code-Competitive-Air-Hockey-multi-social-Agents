@@ -1,4 +1,4 @@
-name: simple_scenario
+name: wide_scenario
 game_duration: 120
 table:
   width: 1200
