@@ -31,6 +31,7 @@ games:
     team_b_name: long_short
     num_agents_team_a: 4
     num_agents_team_b: 4
+
   - repetition: 2
     scenario_file: game_scenarios/default_scenario.yaml
     team_a_name: long_short
@@ -82,6 +83,20 @@ games:
 
   - repetition: 1
     scenario_file: game_scenarios/small_scenario.yaml
+    team_a_name: regional_simple
+    team_b_name: long_short
+    num_agents_team_a: 2
+    num_agents_team_b: 2
+
+  - repetition: 1
+    scenario_file: game_scenarios/wide_scenario.yaml
+    team_a_name: long_short
+    team_b_name: regional_simple
+    num_agents_team_a: 2
+    num_agents_team_b: 2
+
+  - repetition: 1
+    scenario_file: game_scenarios/wide_scenario.yaml
     team_a_name: regional_simple
     team_b_name: long_short
     num_agents_team_a: 2
