@@ -54,21 +54,21 @@ def _resolve_scenario_path(user_path: Optional[str]) -> Optional[Path]:
     """
     Resolution order:
       1) explicit --scenario if provided
-      2) CWD relative fallback: ./src/air_hockey_ros/game_scenarios/simple_scenario.yaml
-      3) ROS share path if available: <share>/src/air_hockey_ros/game_scenarios/simple_scenario.yaml
+      2) CWD relative fallback: ./src/air_hockey_ros/game_scenarios/default_scenario.yaml
+      3) ROS share path if available: <share>/src/air_hockey_ros/game_scenarios/default_scenario.yaml
     """
     if user_path:
         p = Path(user_path)
         if p.is_file():
             return p
 
-    cwd_default = Path.cwd() / "src" / "air_hockey_ros" / "game_scenarios" / "simple_scenario.yaml"
+    cwd_default = Path.cwd() / "src" / "air_hockey_ros" / "game_scenarios" / "default_scenario.yaml"
     if cwd_default.is_file():
         return cwd_default
 
     share_dir = _get_share_dir("air_hockey_ros")
     if share_dir:
-        share_default = share_dir / "src" / "air_hockey_ros" / "game_scenarios" / "simple_scenario.yaml"
+        share_default = share_dir / "src" / "air_hockey_ros" / "game_scenarios" / "default_scenario.yaml"
         if share_default.is_file():
             return share_default
 

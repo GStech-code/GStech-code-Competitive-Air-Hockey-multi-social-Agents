@@ -19,7 +19,7 @@ games:
     num_agents_team_b: 2
 
   - repetition: 1
-    scenario_file: game_scenarios/simple_scenario.yaml
+    scenario_file: game_scenarios/default_scenario.yaml
     team_a_name: simple
     team_b_name: simple
     num_agents_team_a: 1

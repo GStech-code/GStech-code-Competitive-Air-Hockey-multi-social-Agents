@@ -19,12 +19,13 @@ pip install -r requirements.txt
 
 ### Build ROS install:
 ```
-source /opt/ros/jazzy/setup.bash
+source /opt/ros/<ROS2_DISTRO>/setup.bash
 chmod +x src/air_hockey_ros/air_hockey_ros/agent_node.py
 chmod +x src/air_hockey_ros/air_hockey_ros/game_manager_node.py
 colcon build --symlink-install --packages-select air_hockey_ros
 source install/setup.bash
 ```
+###### Replace <ROS2_DISTRO> with your installed ROS 2 version, e.g. humble (Ubuntu 22.04) or jazzy (Ubuntu 24.04).
 #### If you add files, use the colcon build & source functions again.
 
 

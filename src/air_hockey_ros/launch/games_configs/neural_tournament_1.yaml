@@ -1,0 +1,61 @@
+static:
+  sim_name: base
+  view: false
+  log_game_manager: true
+
+games:
+  - repetition: 2
+    scenario_file: game_scenarios/default_scenario.yaml
+    team_a_name: two_capped_neural
+    team_b_name: simple
+    num_agents_team_a: 2
+    num_agents_team_b: 2
+
+  - repetition: 2
+    scenario_file: game_scenarios/default_scenario.yaml
+    team_a_name: simple
+    team_b_name: two_capped_neural
+    num_agents_team_a: 2
+    num_agents_team_b: 2
+
+  - repetition: 2
+    scenario_file: game_scenarios/default_scenario.yaml
+    team_a_name: two_capped_neural
+    team_b_name: regional_simple
+    num_agents_team_a: 2
+    num_agents_team_b: 2
+
+  - repetition: 2
+    scenario_file: game_scenarios/default_scenario.yaml
+    team_a_name: regional_simple
+    team_b_name: two_capped_neural
+    num_agents_team_a: 2
+    num_agents_team_b: 2
+
+  - repetition: 2
+    scenario_file: game_scenarios/default_scenario.yaml
+    team_a_name: two_capped_neural
+    team_b_name: short
+    num_agents_team_a: 2
+    num_agents_team_b: 2
+
+  - repetition: 2
+    scenario_file: game_scenarios/default_scenario.yaml
+    team_a_name: short
+    team_b_name: two_capped_neural
+    num_agents_team_a: 2
+    num_agents_team_b: 2
+
+  - repetition: 2
+    scenario_file: game_scenarios/default_scenario.yaml
+    team_a_name: two_capped_neural
+    team_b_name: long_short
+    num_agents_team_a: 2
+    num_agents_team_b: 2
+
+  - repetition: 2
+    scenario_file: game_scenarios/default_scenario.yaml
+    team_a_name: long_short
+    team_b_name: two_capped_neural
+    num_agents_team_a: 2
+    num_agents_team_b: 2

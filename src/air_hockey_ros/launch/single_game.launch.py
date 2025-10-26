@@ -5,7 +5,7 @@ from pathlib import Path
 import json, yaml
 
 share = get_package_share_directory("air_hockey_ros")
-scenario_path = os.path.join(share, "game_scenarios", "simple_scenario.yaml")
+scenario_path = os.path.join(share, "game_scenarios", "default_scenario.yaml")
 
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, ExecuteProcess, TimerAction, OpaqueFunction
@@ -29,10 +29,10 @@ def _resolve_scenario_path(context, scenario_file_lc):
     candidates = [
         Path(val),
         Path.cwd() / val,
-        here.parent.parent / "game_scenarios" / "simple_scenario.yaml",
+        here.parent.parent / "game_scenarios" / "default_scenario.yaml",
     ]
     if len(here.parents) >= 4:
-        candidates.append(here.parents[3] / "src" / "game_scenarios" / "simple_scenario.yaml")
+        candidates.append(here.parents[3] / "src" / "game_scenarios" / "default_scenario.yaml")
     for c in candidates:
         if c.is_file():
             return str(c)
@@ -114,6 +114,6 @@ def generate_launch_description():
 
     return LaunchDescription([
         DeclareLaunchArgument("sim_cmd", default_value=TextSubstitution(text="")),
-        DeclareLaunchArgument("scenario_file", default_value=TextSubstitution(text="game_scenarios/simple_scenario.yaml")),
+        DeclareLaunchArgument("scenario_file", default_value=TextSubstitution(text="game_scenarios/default_scenario.yaml")),
         OpaqueFunction(function=_build_actions),
     ])
