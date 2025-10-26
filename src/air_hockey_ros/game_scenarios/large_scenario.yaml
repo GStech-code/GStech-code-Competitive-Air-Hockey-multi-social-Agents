@@ -1,5 +1,5 @@
 name: large_scenario
-game_duration: 150
+game_duration: 120
 table:
   width: 1450
   height: 950
