@@ -66,11 +66,20 @@ ps -ef | grep agent_node.py
 #### If nodes are still alive, end them with the kill command.
 
 ### Running replay
+To run the replay, you may need to source the environment.
+You will need to provide the path to the log file (.log), the path to the scenario file (.yaml) and the hz (usually 60)
 Example command:
 
 ```
-python replay.py --log game_logs/game_log_1.log --scenario src/air_hockey_ros/game_scenarios/simple_scenario.yaml --hz 60
+python replay.py --log game_logs/tournament_games/default_scenario--long_short_2-vs-two_capped_neural_2--001.log --scenario src/air_hockey_ros/game_scenarios/default_scenario.yaml```
 ```
+### Analysis
+We have simulated 71 games. Logs exist under  ```game_logs\tournament_games```
+
+You can see the analysis at ```game_logs\tournament_analysis.ipynb```
+
+Check out 5 examples from the tournament:
+https://www.youtube.com/watch?v=uOAevuGi2G4
 
 ## 🤖 Training Neural Network Agents
 
